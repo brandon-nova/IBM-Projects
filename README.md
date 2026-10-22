@@ -20,6 +20,10 @@ Next.js App Router, React, strict TypeScript, Tailwind CSS, shadcn-style UI prim
 
 The production target is **Cloudflare Workers at `https://projects.fncai.org`**, using OpenNext for the Next.js server and Supabase for authentication/database storage. Use the [Cloudflare deployment walkthrough](docs/DEPLOYMENT.md).
 
+**To publish code changes to the live site**, save your files and run `npm run cf:deploy` from this project, then `npm run cf:verify`. The deployment command builds and uploads the current files. Saving files or pushing to GitHub does not trigger a deployment in the manual setup used here. Git deployments are a separate optional Cloudflare configuration.
+
+**On your Mac**, `npm run dev` shows saved code changes at `http://localhost:3000`. This does not update the live site. Database changes and email templates must be saved in Supabase separately; deploying application code does not install them. For live signup, follow [the click-by-click email checklist](docs/EMAIL_SETUP.md), including the `.env.production` step that enables sign-in.
+
 ```sh
 npm run cf:setup
 npm run cf:login
@@ -39,7 +43,7 @@ Cloudflare adapter dependencies are included in the manifest and lockfile. The s
 1. Install Node 24 and run `npm ci` using the provided `package-lock.json`.
 2. If `.env.local` does not exist yet, copy `.env.example` to `.env.local`. Keep any values you have already configured.
 3. Create a Supabase Cloud development project. Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` from its Connect/API settings. Set `NEXT_PUBLIC_APP_URL=http://localhost:3000`. Provisioning scripts need the legacy **server-only** `SUPABASE_SERVICE_ROLE_KEY`; the application itself does not. Do not commit keys.
-4. Apply both SQL files in `supabase/migrations/`, in filename order, once in the hosted SQL editor, then `supabase/seed.sql`. If the core migration is already installed, apply only `20261022000200_ibm_signup.sql`. Alternatively, use `npx supabase login`, `npx supabase link --project-ref YOUR_PROJECT_REF`, and `npx supabase db push` to apply versioned migrations, then apply the skill catalog in the SQL editor. Both methods work without Docker. Use migrations consistently afterward; do not apply the same migration manually and through the CLI.
+4. For a project without the app schema, paste all of [supabase/setup.sql](supabase/setup.sql) into **Supabase → SQL Editor → New query** and click **Run**. This installs all tables, permissions, IBM signup approval, and starting skills in one query. If the core database is already installed, apply only missing migrations instead. The combined file is generated with `npm run db:setup-file`; do not replay its source migrations afterward. CLI-based migration setup is also supported, but reconcile migration history before switching from manual SQL setup.
 5. For a fictional demo, choose a unique password of 12+ characters, set `DEMO_PASSWORD` and `ALLOW_REMOTE_DEMO_SEED=true`, and run `npm run seed`. For an empty workspace instead, use the administrator bootstrap below.
 6. Run `npm run dev` and visit `http://localhost:3000`.
 

@@ -24,6 +24,7 @@
     "test:e2e": "playwright test",
     "db:start": "supabase start",
     "db:reset": "supabase db reset",
+    "db:setup-file": "node scripts/generate-database-setup.mjs",
     "seed": "node --env-file-if-exists=.env.local scripts/seed.mjs",
     "bootstrap": "node --env-file-if-exists=.env.local scripts/bootstrap.mjs"
   },

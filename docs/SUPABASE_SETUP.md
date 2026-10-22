@@ -1,132 +1,93 @@
-# Connect IBM to Supabase
+# Connect the app to Supabase
 
-You only need a hosted Supabase project and the local settings file. Docker is optional.
+Your project is already created and its public keys have been added to `.env.local`. Start at step 2 if those values are still there.
 
-## 1. Open your environment file
+## 1. Check the local keys
 
-Open **`.env.local`** in the root of this project, beside `package.json`. A blank copy was created for this checkout. In VS Code, press **Command + P**, type `.env.local`, and press Enter. In Finder, **Command + Shift + .** shows hidden files.
+Open [your Supabase project](https://supabase.com/dashboard/project/hatvbfuznerrprpuccpj). Click **Connect** to find the Project URL and Publishable key.
 
-If your editor hides ignored files too, open it directly in TextEdit from the project terminal:
-
-```sh
-open -e .env.local
-```
-
-For a fresh clone without that local file, create it from the template:
-
-```sh
-cp .env.example .env.local
-```
-
-Next.js loads `.env.local` automatically. You do not need a separate `.env` file. Git ignores `.env.local` because it will contain your credentials.
-
-## 2. Create a hosted project and fill in three settings
-
-1. Visit [the Supabase dashboard](https://supabase.com/dashboard) and create a new development project. Choose a region near you and save its database password.
-2. Wait for the project to finish starting. Open **Connect**, or **Settings → API Keys**, to find the **Project URL** and **Publishable key**. The publishable key usually starts with `sb_publishable_`; the legacy `anon` key also works.
-3. Fill in these lines in `.env.local`:
+In VS Code, open `.env.local` beside `package.json`. Fill in:
 
 ```dotenv
-NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+NEXT_PUBLIC_SUPABASE_URL=YOUR_PROJECT_URL
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
-Keep the `https://` in the Supabase URL. The database password is different from the publishable key.
+Keep the actual values already in your file; do not replace them with these placeholders.
 
-## 3. Create the database tables and permissions
+## 2. Create the database
 
-In the Supabase dashboard, open **SQL Editor → New query**.
+For a project without the app tables, use **one file**:
 
-1. Copy the entire contents of [the core migration](../supabase/migrations/20261022000100_core.sql), paste it into a new query, and click **Run**. This creates the tables, signup restrictions, permissions, and contribution workflow. Run this migration **once on a fresh project**.
-2. In another query, run [the IBM signup migration](../supabase/migrations/20261022000200_ibm_signup.sql). This approves new exact `@ibm.com` signups while preserving verification and revocation. For an existing database with the core migration already installed, start with this step.
-3. Open another query, paste [the skill catalog](../supabase/seed.sql), and click **Run**. This adds the starting skills and can be repeated.
+1. Open [setup.sql](../supabase/setup.sql) in VS Code. Select all and copy.
+2. Open [Supabase → SQL Editor → New query](https://supabase.com/dashboard/project/hatvbfuznerrprpuccpj/sql/new).
+3. Paste the entire file and click **Run**.
 
-You should now see `profiles`, `projects`, `approved_emails`, and `project_deliverables` in the Table Editor. If SQL reports an error, resolve it before creating accounts. A migration that was already applied should not be pasted again.
+Expected result: a row saying **Database setup complete**. Open [Table Editor](https://supabase.com/dashboard/project/hatvbfuznerrprpuccpj/editor) to see the tables.
 
-For later deployments, use the versioned Supabase CLI migration process described in the README instead of reapplying the SQL manually.
+This creates all application tables, permissions, automatic `@ibm.com` signup approval, and starting skills together. You do not need to run the individual SQL files afterward. This file does not create login accounts; continue to step 3 for your administrator.
 
-## 4. Create your first login
+The combined setup is for an app database that has not been set up yet. It stops if app objects already exist and does not reset or delete your data. If the app tables already exist and only IBM signup needs enabling, run [the IBM signup SQL](../supabase/migrations/20261022000200_ibm_signup.sql) instead. An error saying `type "public.approved_emails" does not exist` means the IBM signup file was run before the core database was created.
 
-The app automatically approves new exact `@ibm.com` addresses after the second migration; users still need to verify their email. Other addresses require administrator approval. Use one of these provisioning options to create the first administrator; automatic signup grants only member access.
+For repository maintenance, `npm run db:setup-file` regenerates the combined file from the versioned migrations and skill catalog. Existing databases should receive only missing migrations. If switching from manual SQL setup to CLI migrations, reconcile migration history first; do not replay the initial migrations over this setup.
 
-Open **Settings → API Keys → Legacy API keys** and copy the **service_role** key into this line in `.env.local`:
+## 3. Create your administrator login
 
-```dotenv
-SUPABASE_SERVICE_ROLE_KEY=YOUR_LEGACY_SERVICE_ROLE_KEY
-```
+In Supabase, click **Project Settings → API Keys → Legacy API keys**. Copy the `service_role` key.
 
-This is a server-only provisioning key. Keep it in the ignored local file; never give it a `NEXT_PUBLIC_` prefix or paste it into browser code.
-
-### Your own administrator account
-
-Fill in the existing bootstrap lines in `.env.local`. Choose a password of at least 12 characters:
+In `.env.local`, fill in these existing lines:
 
 ```dotenv
-BOOTSTRAP_ADMIN_EMAIL=your-email@example.com
-BOOTSTRAP_ADMIN_PASSWORD=YOUR_UNIQUE_PASSWORD
+SUPABASE_SERVICE_ROLE_KEY=PASTE_YOUR_SERVICE_ROLE_KEY
+BOOTSTRAP_ADMIN_EMAIL=YOUR_EMAIL
+BOOTSTRAP_ADMIN_PASSWORD=CHOOSE_A_PASSWORD_OF_AT_LEAST_12_CHARACTERS
 BOOTSTRAP_ADMIN_NAME=Your Name
 ```
 
-Then run, from the project directory:
+Keep this key and password private. Never give the service-role key a `NEXT_PUBLIC_` prefix.
+
+In the project terminal, run:
 
 ```sh
 npm run bootstrap
 ```
 
-The script approves your address, creates an email-confirmed account, and makes it an administrator. You can then sign in using that email/password. An existing account keeps its existing password.
+This creates your admin account with email already confirmed. If the account already exists, its password stays the same.
 
-### Or explore with fictional demo accounts
+## 4. Open the app on your Mac
 
-Set these two lines in `.env.local`:
-
-```dotenv
-DEMO_PASSWORD=YOUR_UNIQUE_PASSWORD_OF_AT_LEAST_12_CHARACTERS
-ALLOW_REMOTE_DEMO_SEED=true
-```
-
-Then run:
-
-```sh
-npm run seed
-```
-
-This creates six fictional people and six synthetic projects. Sign in as `admin@ibm-projects.example` for admin controls, or `casey@ibm-projects.example` for the first-time homepage. They use your `DEMO_PASSWORD`. These example accounts are email-confirmed by the provisioning script, so demo setup does not require email delivery.
-
-Provisioning keys are only needed for these scripts; the running app uses the publishable key and each user's session.
-
-## 5. Start the app
-
-If dependencies are not installed yet, run `npm ci`. Then:
+Run:
 
 ```sh
 npm run dev
 ```
 
-Open [localhost:3000](http://localhost:3000) and sign in. Restart the dev server after changing `.env.local`.
+Open [http://localhost:3000](http://localhost:3000), click **Sign in**, and use your admin email and password. Restart this command after changing `.env.local`.
 
-As admin, open **Admin → Manage workspace access** to approve other email addresses or revoke access. IBM-domain accounts can sign up without individual approval once the second migration and email delivery are configured. An explicit revocation is never overridden by automatic approval.
+## 5. Set up live signup and email
 
-## 6. Enable normal signup and password reset emails
+Follow [the live signup and email checklist](EMAIL_SETUP.md). It gives the exact Supabase pages, email-template files, SMTP fields, and deployment command.
 
-For local development, set **Authentication → URL Configuration** to:
+<details>
+<summary>Optional: add fictional demo accounts and projects</summary>
 
-- **Site URL:** `http://localhost:3000`
-- **Redirect URLs:** `http://localhost:3000/auth/confirm`
+In `.env.local`, set `DEMO_PASSWORD` to a unique password of at least 12 characters and set `ALLOW_REMOTE_DEMO_SEED=true`. Then run `npm run seed`.
 
-Keep email/password authentication and email confirmation enabled. Under Auth's email templates, paste the [confirmation template](../supabase/templates/confirmation.html) and [recovery template](../supabase/templates/recovery.html) into their corresponding settings. Use the subjects and full instructions in [email setup](EMAIL_SETUP.md). The custom-template link opens a confirmation page and is redeemed only after the user selects its button, reducing accidental use by email scanners. Hosted settings must be updated explicitly; editing repository HTML alone does not update Supabase.
+Sign in as `admin@ibm-projects.example` for admin controls, or `casey@ibm-projects.example` for the zero-project homepage, using that demo password. These fictional accounts are email-confirmed by the script and do not need email delivery. Run this only in a fictional demo project.
 
-Supabase's default email service has delivery restrictions. For real verification and recovery, configure a custom SMTP provider and test actual received messages. The [deployment guide](DEPLOYMENT.md) covers SMTP and the production redirect URLs. First-time bootstrap and the fictional demo do not depend on SMTP.
+</details>
 
-## If something does not work
+<details>
+<summary>Common problems</summary>
 
-| Symptom | What to check |
+| Problem | What to do |
 | --- | --- |
-| “Workspace setup needed” | Both public Supabase settings must be filled in `.env.local`; restart `npm run dev`. |
-| “Unable to verify workspace access” | Apply the core migration to the same project as the URL in `.env.local`. |
-| Signup is unavailable | Apply the IBM signup migration for exact `@ibm.com` addresses; other addresses need admin approval. Explicitly revoked addresses stay blocked. Bootstrap the first admin separately. |
-| Seed/bootstrap returns 401 or 403 | Use the matching project's legacy `service_role` key for provisioning, plus its publishable or legacy `anon` key. |
-| Confirmation/reset link fails | Follow [email troubleshooting](EMAIL_SETUP.md): check URLs/templates, deploy the confirmation page, and use **Resend verification email** for a fresh link. PKCE links require the initiating browser. |
-| You can log in but cannot see data | Check whether the account was confirmed and its approved-email entry is active. |
+| Cannot find `.env.local` | In VS Code press Command + P and type `.env.local`. For a fresh clone, copy `.env.example` to `.env.local`. |
+| App says Supabase is not configured | Fill both public values in `.env.local` and restart `npm run dev`. |
+| Unable to verify workspace access | Run the database SQL against the same project as the URL in `.env.local`. |
+| Bootstrap returns 401/403 | Use that project's matching legacy `service_role` key for the bootstrap script. |
+| IBM signup is denied | Apply the IBM signup SQL. Explicitly revoked addresses stay blocked. Other domains need admin approval. |
+| Email link is invalid | Finish the [email checklist](EMAIL_SETUP.md), then request a fresh message. |
 
-Database, email, and browser acceptance remain separate checks. Filling in environment settings alone does not certify those flows.
+</details>
