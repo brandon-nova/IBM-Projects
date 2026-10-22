@@ -1,0 +1,12 @@
+import { randomBytes } from "node:crypto";
+import { writeFileSync } from "node:fs";
+if (!process.env.CI) throw new Error("This script writes test configuration and is intended only for CI.");
+const url = process.env.TEST_SUPABASE_URL;
+const key = process.env.TEST_SUPABASE_KEY;
+const service = process.env.TEST_SUPABASE_SERVICE_ROLE_KEY;
+if (!url || !key || !service) throw new Error("Configure a dedicated hosted Supabase test project in CI secrets. Docker is not required.");
+const password = randomBytes(24).toString("base64url");
+const lines = (values) => Object.entries(values).map(([key,value])=>`${key}=${JSON.stringify(value)}`).join("\n")+"\n";
+writeFileSync(".env.local",lines({NEXT_PUBLIC_SUPABASE_URL:url,NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:key,NEXT_PUBLIC_APP_URL:"http://127.0.0.1:3000"}),{mode:0o600});
+writeFileSync(".env.test",lines({TEST_SUPABASE_URL:url,TEST_SUPABASE_KEY:key,TEST_SUPABASE_SERVICE_ROLE_KEY:service,TEST_PASSWORD:password,ALLOW_REMOTE_TESTS:"true",PLAYWRIGHT_BASE_URL:"http://127.0.0.1:3000"}),{mode:0o600});
+console.log("Hosted-test configuration written. Credentials were not printed.");

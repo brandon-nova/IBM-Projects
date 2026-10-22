@@ -18,7 +18,7 @@ export const projectSchema = z.object({
   estimated_hours: hours(10000, false),
 });
 export const deliverableSchema = z.object({
-  url: z.string().trim().refine(safeExternalUrl, "Enter a full http:// or https:// link without embedded credentials."),
+  url: z.string().trim().refine(safeExternalUrl, "Enter a full http:// or https:// link without embedded credentials.").transform((value) => new URL(value).href),
   summary: z.string().trim().min(10, "Describe what you accomplished in at least 10 characters.").max(2000),
   outcome: z.string().trim().max(1000),
 });

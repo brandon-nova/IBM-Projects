@@ -9,7 +9,7 @@ export async function fixtures() {
   const password = process.env.TEST_PASSWORD;
   if (!url || !key || !service || !password || password.length < 12) throw new Error("Real Supabase tests require .env.test: TEST_SUPABASE_URL, TEST_SUPABASE_KEY, TEST_SUPABASE_SERVICE_ROLE_KEY, and TEST_PASSWORD (12+ characters). Tests were not run.");
   const hostname = new URL(url).hostname;
-  if (!["127.0.0.1","localhost","[::1]"].includes(hostname) && process.env.ALLOW_REMOTE_TESTS !== "true") throw new Error("Use local Supabase, or explicitly set ALLOW_REMOTE_TESTS=true for a disposable test project. Never run against production.");
+  if (!["127.0.0.1","localhost","[::1]"].includes(hostname) && process.env.ALLOW_REMOTE_TESTS !== "true") throw new Error("Set ALLOW_REMOTE_TESTS=true for your dedicated hosted test project, or use optional local Supabase. Never run against production.");
   const runId = randomUUID().replaceAll("-", "").slice(0,16);
   const created: Actor[] = [];
   const approved: string[] = [];
@@ -27,7 +27,7 @@ export async function fixtures() {
     return response.data;
   }
   async function actor(label: string, admin = false): Promise<Actor> {
-    const email = `test-${runId}-${label}@soverflow.example`;
+    const email = `test-${runId}-${label}@ibm-projects.example`;
     const name = `Fictional ${label} ${runId}`;
     await ok("/rest/v1/approved_emails","POST",{email,active:true},service);
     approved.push(email);

@@ -16,7 +16,7 @@ export const getViewer = cache(async () => {
     client.from("profiles").select("*").eq("user_id", user.id).single(),
     client.from("user_roles").select("*").eq("user_id", user.id).single(),
   ]);
-  if (profileError || roleError) throw new Error("Unable to load your workspace profile.");
+  if (profileError || roleError || !profile || !role) throw new Error("Unable to load your workspace profile.");
   return { id: user.id, email: user.email, profile, role: role.role };
 });
 export async function requireViewer() {

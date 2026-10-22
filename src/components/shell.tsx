@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowUpRight, Layers2, LogOut } from "lucide-react";
+import { ArrowUpRight, LogOut } from "lucide-react";
 import { getViewer } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { initials } from "@/lib/domain";
@@ -7,10 +7,10 @@ import { logout } from "@/app/actions";
 import { Button } from "./ui/button";
 
 export function Brand() {
-  return <Link href="/" className="brand" aria-label="Soverflow home"><span className="brand-symbol"><Layers2 size={20} strokeWidth={2} /></span>Soverflow<span className="brand-dot">.</span></Link>;
+  return <Link href="/" className="brand" aria-label="IBM home"><span className="brand-name">IBM</span><span className="brand-divider" aria-hidden="true" /><span className="brand-description">Projects</span></Link>;
 }
 export function Footer() {
-  return <footer className="site-footer"><span>Find work worth doing.</span><span>IBM-named demo · Fictional people and projects · Independently built; no IBM endorsement.</span></footer>;
+  return <footer className="site-footer"><span><strong>IBM</strong><span className="footer-divider" aria-hidden="true">/</span>Find work worth doing.</span><span>Development preview · Fictional people and projects</span></footer>;
 }
 export async function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const viewer = await getViewer();

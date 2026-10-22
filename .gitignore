@@ -7,6 +7,10 @@ test-results/
 .env*
 !.env.example
 !.env.test.example
+!.env.production.example
+.open-next/
+.wrangler/
+wrangler.deploy.json
 *.tsbuildinfo
 .DS_Store
 .supabase/

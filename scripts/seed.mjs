@@ -6,7 +6,7 @@ const local = ["127.0.0.1", "localhost", "[::1]"].includes(new URL(config.url).h
 if (!local && process.env.ALLOW_REMOTE_DEMO_SEED !== "true") throw new Error("Hosted demo seeding requires ALLOW_REMOTE_DEMO_SEED=true. Use fictional data only.");
 
 const names = ["Morgan Vale", "Alex Rowan", "Jamie Brooks", "Sam Ellis", "Taylor Quinn", "Casey Rivers"];
-const emails = ["admin", "alex", "jamie", "sam", "taylor", "casey"].map((s) => `${s}@soverflow.example`);
+const emails = ["admin", "alex", "jamie", "sam", "taylor", "casey"].map((s) => `${s}@ibm-projects.example`);
 const users = [];
 for (let i=0;i<names.length;i++) users.push(await provision(config, emails[i], names[i], password));
 await request(config, `/rest/v1/user_roles?user_id=eq.${users[0].id}`, { role: "admin" }, "PATCH");
@@ -52,4 +52,4 @@ for (const f of fixtures) {
     await rpc(config,tokens[f.owner],"complete_project",{p_project_id:f.id});
   }
 }
-console.log("Synthetic demo seeded: one admin, five employees, six projects. casey@soverflow.example has zero project memberships. Existing projects and accepted evidence were preserved.");
+console.log("Synthetic demo seeded: one admin, five employees, six projects. casey@ibm-projects.example has zero project memberships. Existing projects and accepted evidence were preserved.");

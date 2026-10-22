@@ -1,4 +1,5 @@
 -- Single workspace. All application writes go through actor-checked RPCs.
+-- This initial migration targets a fresh hosted or local Supabase project.
 create type public.workspace_role as enum ('member', 'admin');
 create type public.skill_type as enum ('existing', 'learning');
 create type public.project_visibility as enum ('private', 'organization');
@@ -59,7 +60,8 @@ create table public.projects (
   updated_at timestamptz not null default now(),
   check (visibility <> 'organization' or (approval_status = 'approved' and owner_id is not null)),
   check (approval_status <> 'approved' or owner_id is not null),
-  check ((work_status = 'completed') = (completed_at is not null and completed_by is not null))
+  check ((work_status = 'completed' and completed_at is not null and completed_by is not null)
+    or (work_status <> 'completed' and completed_at is null and completed_by is null))
 );
 create index projects_discovery_idx on public.projects(visibility, approval_status, work_status);
 create index projects_creator_idx on public.projects(creator_id);
@@ -91,11 +93,32 @@ create table public.project_requests (
 );
 create index project_requests_user_idx on public.project_requests(user_id, status);
 create index project_requests_pending_idx on public.project_requests(project_id, status);
+
+-- Application forms canonicalize URLs with the URL parser. Also validate direct
+-- RPC input so a caller cannot save missing hosts, credentials, or invalid ports.
+create function public.valid_deliverable_url(p_url text) returns boolean
+language plpgsql immutable set search_path = '' as $$
+declare parts text[];
+begin
+  if p_url is null or char_length(p_url) > 2048 or p_url ~ '[[:space:][:cntrl:]\\]' then return false; end if;
+  parts = regexp_match(p_url, '^https?://(\[[0-9a-f:.]+\]|[a-z0-9_][a-z0-9_.-]*)(?::([0-9]{1,5}))?(?:[/?#].*)?$', 'i');
+  if parts is null then return false; end if;
+  if parts[2] is not null and parts[2]::integer > 65535 then return false; end if;
+  if left(parts[1], 1) = '[' then
+    begin
+      if family(substr(parts[1], 2, char_length(parts[1]) - 2)::inet) <> 6 then return false; end if;
+    exception when invalid_text_representation then return false;
+    end;
+  end if;
+  return true;
+end;
+$$;
+
 create table public.project_deliverables (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references public.projects(id) on delete cascade,
   contributor_id uuid not null references public.profiles(user_id),
-  url text not null check (char_length(url) <= 2048 and url ~* '^https?://[^[:space:]/@]+([/?#][^[:space:]]*)?$'),
+  url text not null check (public.valid_deliverable_url(url)),
   summary text not null check (char_length(btrim(summary)) between 10 and 2000),
   outcome text not null default '' check (char_length(outcome) <= 1000),
   status public.deliverable_status not null default 'submitted',
@@ -226,6 +249,9 @@ declare result uuid;
 begin
   perform public.assert_active();
   perform 1 from public.profiles where user_id = auth.uid() for update;
+  select s.id into result from public.skills s join public.user_skills u on u.skill_id = s.id
+    where u.user_id = auth.uid() and u.type = 'learning' and lower(s.name) = lower(btrim(p_interest));
+  if found then return result; end if;
   if (select count(*) from public.user_skills where user_id = auth.uid() and type = 'learning') >= 20 then
     raise exception 'Your profile already has 20 learning interests. Edit your profile to make room.';
   end if;
@@ -408,9 +434,11 @@ declare target uuid;
 begin
   if not public.workspace_admin() then raise exception 'Administrator access is required.' using errcode = '42501'; end if;
   lock table public.user_roles in share row exclusive mode;
+  -- Recheck after waiting: a concurrent administrator may have revoked this actor.
+  if not public.workspace_admin() then raise exception 'Administrator access is required.' using errcode = '42501'; end if;
   select user_id into target from public.approved_emails where email = lower(btrim(p_email));
   if not p_active and exists(select 1 from public.user_roles where user_id = target and role = 'admin')
-    and (select count(*) from public.user_roles r join public.approved_emails a on a.user_id = r.user_id where r.role = 'admin' and a.active) <= 1 then
+    and (select count(*) from public.user_roles r join public.approved_emails a on a.user_id = r.user_id join auth.users u on u.id = r.user_id where r.role = 'admin' and a.active and u.email_confirmed_at is not null) <= 1 then
     raise exception 'Keep at least one active administrator.';
   end if;
   insert into public.approved_emails(email,active) values(lower(btrim(p_email)),p_active)
@@ -423,9 +451,10 @@ language plpgsql security definer set search_path = '' as $$
 begin
   if not public.workspace_admin() then raise exception 'Administrator access is required.' using errcode = '42501'; end if;
   lock table public.user_roles in share row exclusive mode;
+  if not public.workspace_admin() then raise exception 'Administrator access is required.' using errcode = '42501'; end if;
   if not exists(select 1 from public.approved_emails where user_id = p_user_id and active) then raise exception 'Choose an active workspace user.'; end if;
   if p_role = 'member' and exists(select 1 from public.user_roles where user_id = p_user_id and role = 'admin')
-    and (select count(*) from public.user_roles r join public.approved_emails a on a.user_id = r.user_id where r.role = 'admin' and a.active) <= 1 then
+    and (select count(*) from public.user_roles r join public.approved_emails a on a.user_id = r.user_id join auth.users u on u.id = r.user_id where r.role = 'admin' and a.active and u.email_confirmed_at is not null) <= 1 then
     raise exception 'Keep at least one active administrator.';
   end if;
   update public.user_roles set role = p_role where user_id = p_user_id;
@@ -461,16 +490,17 @@ create policy deliverable_read on public.project_deliverables for select to auth
 do $$ declare f record; begin
   for f in select p.oid::regprocedure as signature, p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public' and p.proname = any(array[
-      'touch_updated_at','provision_workspace_user','keep_workspace_email','workspace_active','workspace_admin',
+      'valid_deliverable_url','touch_updated_at','provision_workspace_user','keep_workspace_email','workspace_active','workspace_admin',
       'project_member','project_visible','assert_active','ensure_skill','save_profile','save_interest','create_project',
       'edit_project','request_publication','assign_owner','review_publication','request_join','review_join',
       'submit_deliverable','review_deliverable','complete_project','start_project','manage_access','set_user_role'
     ]) loop
     execute format('revoke all on function %s from public, anon, authenticated', f.signature);
-    if f.proname not in ('touch_updated_at','provision_workspace_user','keep_workspace_email','assert_active','ensure_skill') then
+    if f.proname not in ('valid_deliverable_url','touch_updated_at','provision_workspace_user','keep_workspace_email','assert_active','ensure_skill') then
       execute format('grant execute on function %s to authenticated', f.signature);
     end if;
   end loop;
 end $$;
+grant execute on function public.valid_deliverable_url(text) to service_role;
 revoke create on schema public from public;
 grant usage on schema public to authenticated, service_role;

@@ -14,13 +14,18 @@ test("real Supabase: access, RLS, ownership, contribution verification, and comp
       assert.ok(result.status >= 400, `${name} must reject an unauthorized or invalid action`);
     };
     await t.test("direct signup and anonymous writes cannot bypass the access list", async () => {
-      const signup = await f.call("/auth/v1/signup","POST",{email:`unapproved-${f.runId}@soverflow.example`,password:contributor.password});
+      const signup = await f.call("/auth/v1/signup","POST",{email:`unapproved-${f.runId}@ibm-projects.example`,password:contributor.password});
       assert.ok(signup.status >= 400);
-      const write = await f.call("/rest/v1/approved_emails","POST",{email:`other-${f.runId}@soverflow.example`});
+      const write = await f.call("/rest/v1/approved_emails","POST",{email:`other-${f.runId}@ibm-projects.example`});
       assert.ok(write.status >= 400);
+      for (const table of ["profiles","projects","project_deliverables"]) {
+        const read = await f.call(`/rest/v1/${table}?select=*&limit=1`);
+        assert.ok(read.status >= 400,`anonymous ${table} reads must be denied`);
+      }
       const role = await f.ok(`/rest/v1/user_roles?user_id=eq.${owner.id}`,"GET",undefined,owner.token);
       assert.equal(role[0].role,"member","client-supplied admin metadata must be ignored");
       await denied(owner,"set_user_role",{p_user_id:owner.id,p_role:"admin"});
+      await denied(owner,"ensure_skill",{p_name:"Unauthorized internal helper"});
     });
     const project = await f.rpc(owner,"create_project",{p_title:`Core workflow ${f.runId}`,p_description:"Build a useful result using fictional test inputs.",p_skills:["Python"],p_estimated_hours:3});
     await t.test("private projects and relationships remain inaccessible by known ID", async () => {
@@ -62,15 +67,28 @@ test("real Supabase: access, RLS, ownership, contribution verification, and comp
     await t.test("submission ownership, URL validation, requested changes, and acceptance", async () => {
       await denied(owner,"complete_project",{p_project_id:project});
       await denied(outsider,"submit_deliverable",{p_project_id:project,p_url:"https://example.com/work",p_summary:"I am not a participant in this project.",p_outcome:""});
-      await denied(contributor,"submit_deliverable",{p_project_id:project,p_url:"javascript:alert(1)",p_summary:"Executable URLs must be rejected by the database.",p_outcome:""});
+      for (const url of ["javascript:alert(1)","https:example.com","https://?missing-host","https://user:pass@example.com/work","https://example.com:99999/work","https://[:::]/work","https://example.com\\work"]) {
+        await denied(contributor,"submit_deliverable",{p_project_id:project,p_url:url,p_summary:"Invalid URLs must be rejected by the database.",p_outcome:""});
+      }
       submission = await f.rpc(contributor,"submit_deliverable",{p_project_id:project,p_url:"https://example.com/test-work",p_summary:"Implemented a useful fictional reporting script.",p_outcome:"Synthetic result; no measured savings claimed."});
       await denied(contributor,"review_deliverable",{p_deliverable_id:submission,p_accept:true,p_feedback:""});
       await denied(admin,"review_deliverable",{p_deliverable_id:submission,p_accept:true,p_feedback:""});
       await f.rpc(owner,"review_deliverable",{p_deliverable_id:submission,p_accept:false,p_feedback:"Add clear instructions."});
       const updated = await f.rpc(contributor,"submit_deliverable",{p_project_id:project,p_url:"https://example.com/test-work",p_summary:"Implemented the script and added clear instructions.",p_outcome:"Synthetic useful result."});
       assert.equal(updated,submission,"one submission per contributor");
-      await f.rpc(owner,"review_deliverable",{p_deliverable_id:submission,p_accept:true,p_feedback:"Useful work, confirmed."});
+      const [edit,review] = await Promise.all([
+        f.call("/rest/v1/rpc/submit_deliverable","POST",{p_project_id:project,p_url:"https://example.com/test-work",p_summary:"Implemented the script, instructions, and a final example.",p_outcome:"Synthetic useful result."},contributor.token),
+        f.call("/rest/v1/rpc/review_deliverable","POST",{p_deliverable_id:submission,p_accept:true,p_feedback:"Useful work, confirmed."},owner.token),
+      ]);
+      assert.equal(review.status,200,"owner acceptance must commit despite a concurrent author edit");
+      if (edit.status !== 200) {
+        assert.equal(edit.status,400);
+        assert.match(edit.data.message,/Accepted contributions cannot be changed/);
+      }
       const before = await f.ok(`/rest/v1/project_deliverables?id=eq.${submission}`,"GET",undefined,contributor.token);
+      assert.equal(before[0].status,"accepted");
+      assert.equal(before[0].reviewed_by,owner.id);
+      assert.equal(before[0].summary,edit.status === 200 ? "Implemented the script, instructions, and a final example." : "Implemented the script and added clear instructions.");
       await denied(contributor,"submit_deliverable",{p_project_id:project,p_url:"https://example.com/changed",p_summary:"Accepted submissions must be immutable.",p_outcome:""});
       await denied(owner,"review_deliverable",{p_deliverable_id:submission,p_accept:false,p_feedback:"Attempt to overwrite acceptance."});
       const after = await f.ok(`/rest/v1/project_deliverables?id=eq.${submission}`,"GET",undefined,contributor.token);

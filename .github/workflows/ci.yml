@@ -1,0 +1,52 @@
+name: Core release checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install dependencies
+        run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - name: Build application
+        run: npm run build
+        env:
+          NEXT_PUBLIC_APP_URL: https://projects.fncai.org
+  hosted-core:
+    needs: checks
+    if: vars.RUN_HOSTED_CORE_TESTS == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+      TEST_SUPABASE_KEY: ${{ secrets.TEST_SUPABASE_KEY }}
+      TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - name: Configure dedicated hosted test project
+        run: node scripts/prepare-ci.mjs
+      - name: Install browser
+        run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - run: npm run test:integration
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-test-results
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 3

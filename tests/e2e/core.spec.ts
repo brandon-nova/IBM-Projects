@@ -47,6 +47,8 @@ test("a contribution goes from proposal to owner-verified profile credit", async
     await expect(contributorPage.getByText("Your request is waiting for the owner.",{exact:true})).toBeVisible();
     await ownerPage.reload();
     await ownerPage.getByRole("button",{name:"Accept request",exact:true}).click();
+    await expect(ownerPage.getByRole("heading",{name:"People who want to help",exact:true})).toHaveCount(0);
+    await expect(ownerPage.getByRole("link",{name:contributor.name,exact:true})).toBeVisible();
     await contributorPage.reload();
     await contributorPage.getByLabel("Deliverable URL",{exact:true}).fill("https://example.com/fictional-script");
     await contributorPage.getByLabel("What did you accomplish?",{exact:true}).fill("Created a reporting script with clear setup instructions.");

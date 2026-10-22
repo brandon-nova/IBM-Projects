@@ -10,7 +10,7 @@ export function SkillTags({ skills, people = false }: { skills: { id: string; na
 }
 export function ProjectCard({ project, data, verified = false }: { project: Project; data: WorkspaceData; verified?: boolean }) {
   return <article className="project-card">
-    <div className="card-top"><Badge tone={project.work_status === "completed" ? "teal" : "neutral"}>{labels[project.work_status]}</Badge>{project.visibility === "private" && <span className="private-label"><LockKeyhole size={12} />Private</span>}{verified && <span className="verified-label"><CheckCircle2 size={14} />Verified</span>}</div>
+    <div className="card-top"><Badge tone={project.work_status === "completed" ? "blue" : "neutral"}>{labels[project.work_status]}</Badge>{project.visibility === "private" && <span className="private-label"><LockKeyhole size={12} />Private</span>}{verified && <span className="verified-label"><CheckCircle2 size={14} />Verified</span>}</div>
     <h2><Link href={`/projects/${project.id}`}>{project.title}</Link></h2>
     <p className="muted line-clamp-3">{project.description}</p>
     <SkillTags skills={projectTags(data, project.id)} />

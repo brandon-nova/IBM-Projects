@@ -1,4 +1,4 @@
-project_id = "soverflow"
+project_id = "ibm-projects"
 
 [api]
 enabled = true
@@ -39,9 +39,9 @@ enable_confirmations = true
 secure_password_change = true
 
 [auth.email.template.confirmation]
-subject = "Confirm your Soverflow account"
+subject = "Confirm your IBM account"
 content_path = "./templates/confirmation.html"
 
 [auth.email.template.recovery]
-subject = "Reset your Soverflow password"
+subject = "Reset your IBM password"
 content_path = "./templates/recovery.html"

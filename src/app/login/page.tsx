@@ -13,7 +13,7 @@ export default async function Login({ searchParams }: { searchParams: Promise<Re
     <h1>{mode === "signup" ? "A place for your skills." : mode === "reset" ? "Let’s get you back in." : "Welcome back."}</h1>
     <p className="muted">{mode === "signup" ? "Use the email approved by your workspace administrator." : mode === "reset" ? "We’ll email you a link to reset your password." : "Sign in to find your next opportunity."}</p>
     {typeof params.notice === "string" && notices[params.notice] && <p role="status" className="notice notice-success mb-5">{notices[params.notice]}</p>}
-    {configured ? <AuthForm mode={mode} /> : <div className="panel stack-sm"><h2>Workspace setup needed</h2><p className="muted">Set the Supabase URL and publishable key, apply the database migration, and bootstrap an administrator. Setup steps are in the repository README.</p></div>}
+    {configured ? <AuthForm mode={mode} /> : <div className="panel stack-sm"><h2>One quick setup first.</h2><p className="muted">Open <code>.env.local</code> in your project folder and add your Supabase URL and publishable key. Restart the app, then sign in.</p><p className="field-hint">The complete walkthrough is in <code>docs/SUPABASE_SETUP.md</code>, including database setup and your first admin account.</p></div>}
     <div className="auth-links"><Link className="text-link" href={mode === "login" ? "/login?mode=signup" : "/login"}>{mode === "login" ? "Create an approved account" : "Back to sign in"}</Link>{mode === "login" && <Link className="text-link" href="/login?mode=reset">Forgot password?</Link>}</div>
   </main><Footer /></div>;
 }

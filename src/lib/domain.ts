@@ -27,7 +27,8 @@ export function initials(name: string): string {
 }
 
 export function safeExternalUrl(value: string): boolean {
-  if (value.length > 2048 || /\s/.test(value)) return false;
+  if (value.length > 2048 || !/^https?:\/\//i.test(value) || /[\s\\]/.test(value)) return false;
+  if (Array.from(value).some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) return false;
   try {
     const url = new URL(value);
     return ["https:", "http:"].includes(url.protocol) && Boolean(url.hostname) && !url.username && !url.password;

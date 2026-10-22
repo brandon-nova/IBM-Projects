@@ -9,8 +9,8 @@ test("only accepted work in a completed project receives completed credit", () =
   assert.equal(hasVerifiedCredit("open","accepted"),false);
 });
 test("external evidence links reject executable schemes, credentials, and malformed input", () => {
-  for (const url of ["javascript:alert(1)","data:text/html,hello","//evil.test","https://user:pass@example.com","https://example.com/a b","not a link","https://"]) assert.equal(safeExternalUrl(url),false,url);
-  for (const url of ["https://example.com/work?q=python#result","http://example.test/project","https://example.com:8443/work"]) assert.equal(safeExternalUrl(url),true,url);
+  for (const url of ["javascript:alert(1)","data:text/html,hello","//evil.test","https://user:pass@example.com","https://example.com/a b","not a link","https://","https:example.com","https://?missing-host","https://example.com:99999/work","https://example.com/\u0000hidden","https://example.com\\work"]) assert.equal(safeExternalUrl(url),false,url);
+  for (const url of ["https://example.com/work?q=python#result","http://example.test/project","https://example.com:8443/work","https://[::1]:8443/work","https://例え.test/work"]) assert.equal(safeExternalUrl(url),true,url);
 });
 test("redirect targets cannot leave the application", () => {
   for (const path of ["https://evil.test","//evil.test","/\\evil.test","/\n//evil.test",null]) assert.equal(safeNext(path),"/");

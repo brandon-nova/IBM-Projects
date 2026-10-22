@@ -17,12 +17,15 @@ function FieldsForm<T extends FieldValues>({ schema, defaults, fields, action, l
 }) {
   const [state, dispatch, pending] = useActionState(action, initialState);
   const [, startTransition] = useTransition();
-  const ref = useRef<HTMLFormElement>(null);
   const prefix = useId();
   const form = useForm<T>({ resolver: zodResolver(schema), defaultValues: defaults });
-  return <form ref={ref} className="form-stack" noValidate onSubmit={form.handleSubmit(() => {
-    if (ref.current) { const data = new FormData(ref.current); startTransition(() => dispatch(data)); }
-  })}>
+  return <form className="form-stack" noValidate onSubmit={(event) => {
+    const element = event.currentTarget;
+    void form.handleSubmit(() => {
+      const data = new FormData(element);
+      startTransition(() => dispatch(data));
+    })(event);
+  }}>
     {Object.entries(hidden).map(([key, value]) => <input key={key} type="hidden" name={key} value={value} />)}
     <fieldset disabled={pending} className="form-stack">
       {fields.map((field) => {
@@ -78,11 +81,11 @@ export function DeliverableForm({ projectId, defaults }: { projectId: string; de
     { name: "outcome", label: "What changed?", type: "textarea", placeholder: "Time saved, a process improved, or another useful result.", maxLength: 1000 },
   ]} />;
 }
-export function ActionForm({ action, label, children, variant = "outline", className = "" }: { action: FormAction; label: string; children?: React.ReactNode; variant?: "default" | "outline" | "ghost" | "destructive"; className?: string }) {
+export function ActionForm({ action, label, children, variant = "outline", className = "", disabled = false }: { action: FormAction; label: string; children?: React.ReactNode; variant?: "default" | "outline" | "ghost" | "destructive"; className?: string; disabled?: boolean }) {
   const [state, dispatch, pending] = useActionState(action, initialState);
   return <form action={dispatch} className={`action-form ${className}`}>
     <fieldset disabled={pending} className="contents">{children}</fieldset>
-    <Button type="submit" variant={variant} size="sm" disabled={pending}>{pending && <LoaderCircle size={14} className="animate-spin" />}{pending ? "Saving…" : label}</Button>
+    <Button type="submit" variant={variant} size="sm" disabled={pending || disabled}>{pending && <LoaderCircle size={14} className="animate-spin" />}{pending ? "Saving…" : label}</Button>
     {state.message && <p role={state.success ? "status" : "alert"} className={state.success ? "action-success" : "field-error"}>{state.message}</p>}
   </form>;
 }
@@ -93,8 +96,8 @@ export function InterestSearch() {
     <form action={dispatch} className="search-box">
       <Search size={21} aria-hidden="true" />
       <label htmlFor="interest" className="sr-only">A skill or interest</label>
-      <input ref={input} id="interest" name="interest" placeholder="A skill, an idea, something you’re curious about…" required maxLength={80} disabled={pending} />
-      <Button type="submit" size="sm" disabled={pending} aria-label="Find opportunities">{pending ? <LoaderCircle className="animate-spin" size={18} /> : <ArrowRight size={18} />}</Button>
+      <input ref={input} id="interest" name="interest" placeholder="A skill, an idea, a little curiosity…" required maxLength={80} disabled={pending} />
+      <Button type="submit" disabled={pending} aria-label="Find opportunities"><span className="search-button-label">Find opportunities</span>{pending ? <LoaderCircle className="animate-spin" size={18} /> : <ArrowRight size={18} />}</Button>
     </form>
     {state.message && <p role="alert" className="field-error mt-3">{state.message}</p>}
     <div className="suggestions" aria-label="Try an interest">{["Learn Python", "Work on AI", "Build a website", "Practice data engineering"].map((s) => <button key={s} type="button" onClick={() => { if (input.current) { input.current.value = s; input.current.focus(); } }}>{s}<ArrowRight size={12} /></button>)}</div>
