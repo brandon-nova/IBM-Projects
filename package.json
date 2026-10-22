@@ -3,21 +3,23 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=24 <25" },
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "cf:setup": "npm install --save-dev @opennextjs/cloudflare@1 wrangler@4",
     "cf:login": "wrangler login",
     "cf:whoami": "wrangler whoami",
-    "cf:build": "node --env-file-if-exists=.env.production scripts/cloudflare.mjs build",
-    "cf:preview": "node --env-file-if-exists=.env.production scripts/cloudflare.mjs preview",
-    "cf:deploy": "node --env-file-if-exists=.env.production scripts/cloudflare.mjs deploy",
+    "cf:build": "node scripts/cloudflare.mjs build",
+    "cf:preview": "node scripts/cloudflare.mjs preview",
+    "cf:deploy": "node scripts/cloudflare.mjs deploy",
     "cf:verify": "node scripts/verify-deployment.mjs",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test tests/domain.test.ts tests/cloudflare.test.mjs",
+    "test": "node --experimental-strip-types --test tests/domain.test.ts tests/email-confirmation.test.ts tests/cloudflare.test.mjs",
     "test:integration": "node --env-file-if-exists=.env.test --test tests/integration.test.mjs",
     "test:e2e": "playwright test",
     "db:start": "supabase start",
@@ -42,6 +44,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "^1.20.13",
     "@playwright/test": "^1.57.0",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/node": "^24.10.0",
@@ -51,6 +54,7 @@
     "eslint-config-next": "^16.0.10",
     "supabase": "^2.67.0",
     "tailwindcss": "^4.1.18",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "wrangler": "^4.152.0"
   }
 }

@@ -39,7 +39,8 @@ Keep the `https://` in the Supabase URL. The database password is different from
 In the Supabase dashboard, open **SQL Editor → New query**.
 
 1. Copy the entire contents of [the core migration](../supabase/migrations/20261022000100_core.sql), paste it into a new query, and click **Run**. This creates the tables, signup restrictions, permissions, and contribution workflow. Run this migration **once on a fresh project**.
-2. Open another query, paste [the skill catalog](../supabase/seed.sql), and click **Run**. This adds the starting skills and can be repeated.
+2. In another query, run [the IBM signup migration](../supabase/migrations/20261022000200_ibm_signup.sql). This approves new exact `@ibm.com` signups while preserving verification and revocation. For an existing database with the core migration already installed, start with this step.
+3. Open another query, paste [the skill catalog](../supabase/seed.sql), and click **Run**. This adds the starting skills and can be repeated.
 
 You should now see `profiles`, `projects`, `approved_emails`, and `project_deliverables` in the Table Editor. If SQL reports an error, resolve it before creating accounts. A migration that was already applied should not be pasted again.
 
@@ -47,7 +48,7 @@ For later deployments, use the versioned Supabase CLI migration process describe
 
 ## 4. Create your first login
 
-The app deliberately rejects signup until an administrator approves the address. Use one of these provisioning options to create the first account.
+The app automatically approves new exact `@ibm.com` addresses after the second migration; users still need to verify their email. Other addresses require administrator approval. Use one of these provisioning options to create the first administrator; automatic signup grants only member access.
 
 Open **Settings → API Keys → Legacy API keys** and copy the **service_role** key into this line in `.env.local`:
 
@@ -104,7 +105,7 @@ npm run dev
 
 Open [localhost:3000](http://localhost:3000) and sign in. Restart the dev server after changing `.env.local`.
 
-As admin, open **Admin → Manage workspace access** to approve additional email addresses. They can then create their own accounts once email delivery is configured.
+As admin, open **Admin → Manage workspace access** to approve other email addresses or revoke access. IBM-domain accounts can sign up without individual approval once the second migration and email delivery are configured. An explicit revocation is never overridden by automatic approval.
 
 ## 6. Enable normal signup and password reset emails
 
@@ -113,7 +114,7 @@ For local development, set **Authentication → URL Configuration** to:
 - **Site URL:** `http://localhost:3000`
 - **Redirect URLs:** `http://localhost:3000/auth/confirm`
 
-Keep email/password authentication and email confirmation enabled. Under Auth's email templates, paste the [confirmation template](../supabase/templates/confirmation.html) and [recovery template](../supabase/templates/recovery.html) into their corresponding settings. They contain the server-side confirmation links this app expects.
+Keep email/password authentication and email confirmation enabled. Under Auth's email templates, paste the [confirmation template](../supabase/templates/confirmation.html) and [recovery template](../supabase/templates/recovery.html) into their corresponding settings. Use the subjects and full instructions in [email setup](EMAIL_SETUP.md). The custom-template link opens a confirmation page and is redeemed only after the user selects its button, reducing accidental use by email scanners. Hosted settings must be updated explicitly; editing repository HTML alone does not update Supabase.
 
 Supabase's default email service has delivery restrictions. For real verification and recovery, configure a custom SMTP provider and test actual received messages. The [deployment guide](DEPLOYMENT.md) covers SMTP and the production redirect URLs. First-time bootstrap and the fictional demo do not depend on SMTP.
 
@@ -123,9 +124,9 @@ Supabase's default email service has delivery restrictions. For real verificatio
 | --- | --- |
 | “Workspace setup needed” | Both public Supabase settings must be filled in `.env.local`; restart `npm run dev`. |
 | “Unable to verify workspace access” | Apply the core migration to the same project as the URL in `.env.local`. |
-| Signup is unavailable | An admin must approve that email first. Bootstrap the first admin instead of using public signup. |
+| Signup is unavailable | Apply the IBM signup migration for exact `@ibm.com` addresses; other addresses need admin approval. Explicitly revoked addresses stay blocked. Bootstrap the first admin separately. |
 | Seed/bootstrap returns 401 or 403 | Use the matching project's legacy `service_role` key for provisioning, plus its publishable or legacy `anon` key. |
-| Confirmation/reset link fails | Check the Auth URL settings and the two email templates; then request a fresh link. |
+| Confirmation/reset link fails | Follow [email troubleshooting](EMAIL_SETUP.md): check URLs/templates, deploy the confirmation page, and use **Resend verification email** for a fresh link. PKCE links require the initiating browser. |
 | You can log in but cannot see data | Check whether the account was confirmed and its approved-email entry is active. |
 
 Database, email, and browser acceptance remain separate checks. Filling in environment settings alone does not certify those flows.

@@ -27,6 +27,44 @@ test("real Supabase: access, RLS, ownership, contribution verification, and comp
       await denied(owner,"set_user_role",{p_user_id:owner.id,p_role:"admin"});
       await denied(owner,"ensure_skill",{p_name:"Unauthorized internal helper"});
     });
+    await t.test("IBM auto-approval requires verification, grants only member access, and preserves revocations", async () => {
+      const employee = await f.actor("ibm-unconfirmed", false, { email:`test-${f.runId}@ibm.com`, preapprove:false, emailConfirmed:false });
+      const [approval] = await f.ok(`/rest/v1/approved_emails?email=eq.${encodeURIComponent(employee.email)}`,"GET",undefined,f.service);
+      assert.equal(approval.user_id,employee.id);
+      assert.equal(approval.active,true);
+      const [role] = await f.ok(`/rest/v1/user_roles?user_id=eq.${employee.id}`,"GET",undefined,f.service);
+      assert.equal(role.role,"member","signup metadata cannot grant an admin role");
+      const unverified = await f.call("/auth/v1/token?grant_type=password","POST",{email:employee.email,password:employee.password});
+      assert.ok(unverified.status >= 400,"unconfirmed users must not sign in");
+      // Admin confirmation is test setup; it sends no mail and never changes
+      // the production requirement to confirm possession of the email address.
+      await f.ok(`/auth/v1/admin/users/${employee.id}`,"PUT",{email_confirm:true},f.service);
+      const session = await f.ok("/auth/v1/token?grant_type=password","POST",{email:employee.email,password:employee.password});
+      employee.token = session.access_token;
+      assert.equal(await f.rpc(employee,"workspace_active",{}),true);
+      await f.rpc(admin,"manage_access",{p_email:employee.email,p_active:false});
+      assert.equal(await f.rpc(employee,"workspace_active",{}),false,"domain approval cannot override a revoked session");
+
+      const blockedEmail = `revoked-${f.runId}@ibm.com`;
+      await f.rpc(admin,"manage_access",{p_email:blockedEmail,p_active:false});
+      try {
+        const blocked = await f.call("/auth/v1/admin/users","POST",{email:blockedEmail,password:employee.password,email_confirm:true},f.service);
+        if (blocked.data?.id) await f.ok(`/auth/v1/admin/users/${blocked.data.id}`,"DELETE",undefined,f.service);
+        assert.ok(blocked.status >= 400,"automatic approval must never reactivate an explicit revocation");
+        const [record] = await f.ok(`/rest/v1/approved_emails?email=eq.${encodeURIComponent(blockedEmail)}`,"GET",undefined,f.service);
+        assert.equal(record.active,false);
+      } finally {
+        await f.ok(`/rest/v1/approved_emails?email=eq.${encodeURIComponent(blockedEmail)}`,"DELETE",undefined,f.service);
+      }
+      for (const domain of ["ibm.com.example","dept.ibm.com","notibm.example"]) {
+        const rejected = await f.call("/auth/v1/admin/users","POST",{email:`test-${f.runId}@${domain}`,password:employee.password,email_confirm:true},f.service);
+        if (rejected.data?.id) {
+          await f.ok(`/auth/v1/admin/users/${rejected.data.id}`,"DELETE",undefined,f.service);
+          await f.ok(`/rest/v1/approved_emails?email=eq.${encodeURIComponent(`test-${f.runId}@${domain}`)}`,"DELETE",undefined,f.service);
+        }
+        assert.ok(rejected.status >= 400,`${domain} must not receive automatic approval`);
+      }
+    });
     const project = await f.rpc(owner,"create_project",{p_title:`Core workflow ${f.runId}`,p_description:"Build a useful result using fictional test inputs.",p_skills:["Python"],p_estimated_hours:3});
     await t.test("private projects and relationships remain inaccessible by known ID", async () => {
       for (const [table,key] of [["projects","id"],["project_members","project_id"],["project_skills","project_id"]]) {

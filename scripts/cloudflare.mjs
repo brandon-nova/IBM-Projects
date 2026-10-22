@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { cloudflareSettings } from "./cloudflare-settings.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const envFile = resolve(root, ".env.production");
+if (existsSync(envFile)) process.loadEnvFile(envFile);
 const command = process.argv[2];
 if (!["build", "preview", "deploy"].includes(command)) throw new Error("Use npm run cf:build, cf:preview, or cf:deploy.");
 

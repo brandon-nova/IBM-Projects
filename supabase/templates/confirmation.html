@@ -1,4 +1,43 @@
-<h2>Welcome to IBM</h2>
-<p>Confirm your email to start finding work worth doing.</p>
-<p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=email">Confirm email</a></p>
-<p>If you did not request an account, ignore this email.</p>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Verify your email for IBM Projects</title>
+  </head>
+  <body style="margin:0;padding:0;background-color:#f4f4f4;color:#161616;font-family:Arial,Helvetica,sans-serif;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:#f4f4f4;mso-hide:all;">One step to your next opportunity. Verify your email to finish creating your account.</div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f4f4f4;">
+      <tr><td align="center" style="padding:40px 16px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;background-color:#ffffff;border:1px solid #e0e0e0;">
+          <tr><td height="5" style="height:5px;background-color:#0f62fe;font-size:0;line-height:0;">&nbsp;</td></tr>
+          <tr><td style="padding:32px 32px 24px;">
+            <p style="margin:0;font-size:27px;font-weight:bold;letter-spacing:-1px;">IBM <span style="font-size:16px;font-weight:normal;letter-spacing:0;color:#525252;">&nbsp; / &nbsp; Projects</span></p>
+          </td></tr>
+          <tr><td style="padding:8px 32px 32px;">
+            <p style="margin:0 0 12px;color:#0043ce;font-size:11px;font-weight:bold;letter-spacing:1.5px;text-transform:uppercase;">Your next opportunity</p>
+            <h1 style="margin:0 0 20px;font-size:29px;line-height:1.25;font-weight:normal;letter-spacing:-0.6px;">Confirm your email address.</h1>
+            <p style="margin:0 0 16px;font-size:16px;line-height:1.65;color:#393939;">Welcome to IBM Projects. Discover useful work, connect with people, and put your skills to work on something that matters.</p>
+            <p style="margin:0 0 26px;font-size:15px;line-height:1.65;color:#525252;">Verify your email to finish setting up your account. We’ll ask you to confirm on the next page.</p>
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+              <tr><td align="center" bgcolor="#0f62fe" style="background-color:#0f62fe;">
+                <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=email" style="display:inline-block;border:1px solid #0f62fe;padding:15px 26px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:bold;line-height:20px;color:#ffffff;text-decoration:none;mso-padding-alt:15px 26px;">Verify email</a>
+              </td></tr>
+            </table>
+            <p style="margin:24px 0 0;font-size:13px;line-height:1.7;color:#525252;">This link can be used once. If it expires, request a fresh verification email from the sign-in page.</p>
+          </td></tr>
+          <tr><td style="padding:24px 32px;border-top:1px solid #e0e0e0;background-color:#fafafa;">
+            <p style="margin:0 0 8px;font-size:12px;line-height:1.6;color:#6f6f6f;">Button not working? Copy this link into your browser:</p>
+            <p style="margin:0;font-size:12px;line-height:1.6;word-break:break-all;overflow-wrap:anywhere;"><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=email" style="color:#0043ce;text-decoration:underline;">{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=email</a></p>
+          </td></tr>
+        </table>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;">
+          <tr><td style="padding:22px 16px 0;">
+            <p style="margin:0 0 10px;font-size:12px;line-height:1.7;color:#6f6f6f;">If you didn’t request this account, you can safely ignore this message. Keep this link private.</p>
+            <p style="margin:0;font-size:11px;line-height:1.7;color:#6f6f6f;">IBM Projects · Independent development preview. No IBM endorsement is implied.</p>
+          </td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>

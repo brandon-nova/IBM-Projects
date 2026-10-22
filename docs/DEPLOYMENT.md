@@ -2,7 +2,9 @@
 
 The Next.js application runs on **Cloudflare Workers with OpenNext**. Supabase remains the authentication and database provider. Server Actions, SSR sessions, database permissions, and the contribution workflow remain part of the application.
 
-Deployment tooling is prepared, but the OpenNext adapter build and Cloudflare upload have **not** been executed here. Installation was blocked by network restrictions and automatic approval review (HTTP 403 for the unavailable `gpt-5.6-luna` review model). No Cloudflare login or Supabase project keys are configured in this workspace. A passing standard Next.js build does not certify the Cloudflare adapter or production workflows.
+**First release selected:** publish the public IBM homepage at `projects.fncai.org` while Supabase is being configured. The domain's DNS is already managed by Cloudflare. The local `.env.production` is set to the explicit homepage-only mode; sign-in displays an availability notice and protected workspace pages remain closed. Supabase and email setup below are required for the later authenticated release.
+
+The supplied terminal log confirms successful dependency installation, Cloudflare OAuth login, an OpenNext adapter build, and Worker deployment to the custom domain. The subsequent verification failed at DNS lookup (`ENOTFOUND`), before HTTPS or application checks could run. That establishes a successful upload, not a verified live site. The agent's own DNS/HTTPS checks are blocked by sandbox network restrictions. Local public Supabase settings are configured; production remains in homepage-only mode.
 
 ## 1. Prepare your Cloudflare account
 
@@ -42,6 +44,8 @@ If you explicitly want to publish **only the public homepage** while setting up 
 
 ## 3. Configure Supabase
 
+Skip this step for the selected homepage-only first release. Complete it before enabling workspace sign-in.
+
 Complete the [Supabase setup guide](SUPABASE_SETUP.md): apply the migration/catalog and bootstrap the first administrator. Keep fictional data until use with real employees/projects is authorized.
 
 Under **Authentication → URL Configuration**, set:
@@ -51,7 +55,7 @@ Under **Authentication → URL Configuration**, set:
 | Site URL | `https://projects.fncai.org` |
 | Allowed redirect URL | `https://projects.fncai.org/auth/confirm` |
 
-Keep email/password authentication and email confirmation enabled. Copy the confirmation/recovery templates from `supabase/templates/` into the corresponding hosted Auth email settings. Configure local development redirects separately; avoid wildcard production redirects.
+Keep email/password authentication and email confirmation enabled. Apply the IBM signup migration after the core migration and install both branded templates from [email setup](EMAIL_SETUP.md) in the hosted Auth email settings. Exact `@ibm.com` addresses then receive automatic member approval without overriding revoked access. The new confirmation page requires an explicit button press before consuming a custom-template token. Configure local development redirects separately; avoid wildcard production redirects.
 
 ## 4. Build and test the Worker
 
@@ -92,6 +96,52 @@ npm run cf:verify
 ```
 
 This checks DNS, HTTPS, the IBM public landing page, and anonymous redirects on protected routes. It does **not** verify signup email, sessions, RLS, owner permissions, or the contribution workflow.
+
+### DNS lookup fails after a successful deploy
+
+`ENOTFOUND projects.fncai.org` means the verifier's DNS resolver could not find the hostname. The check has not reached the Worker yet. A new custom-domain record may still be propagating, or the custom-domain/DNS configuration may need attention.
+
+1. Wait a few minutes and rerun `npm run cf:verify`; a verification failure alone does not require another deployment.
+2. In Cloudflare, open **Workers & Pages → ibm-projects → Settings → Domains & Routes**. Confirm `projects.fncai.org` is present and check its activation/certificate status.
+3. Open **fncai.org → DNS → Records** and confirm Cloudflare created the Worker custom-domain record. If it is absent or pending, resolve the status shown in the custom-domain settings.
+4. Compare the system resolver with Cloudflare's public resolver:
+
+   ```sh
+   dig projects.fncai.org
+   dig @1.1.1.1 projects.fncai.org
+   ```
+
+   If the public resolver returns addresses but the system resolver does not, retry after the local negative DNS cache expires or check the network's DNS settings. If both return `NXDOMAIN`, recheck the Cloudflare zone, authoritative nameservers, and custom-domain status. A timeout or refused query indicates a DNS/network problem and does not prove that the record is absent.
+
+Then open `https://projects.fncai.org` and rerun the verifier. DNS success alone does not establish HTTPS or application success. The verifier accepts IPv4 or IPv6 answers and exits with a failure status until every public check passes.
+
+### Public DNS works, but corporate Wi-Fi does not
+
+A local DNS cache or a corporate DNS/filtering policy can behave differently from a public resolver. An `NXDOMAIN` response alone does not identify the cause or establish that a new-domain filter is responsible.
+
+Compare `dig projects.fncai.org` with `dig @1.1.1.1 projects.fncai.org`. A public DNS query may itself be blocked on a managed network; a timeout/refusal is inconclusive. Check from another permitted network if needed. Use the organization's support process if the hostname is being filtered.
+
+Mapping a name to an address in `/etc/hosts` overrides DNS on that computer; it does not make DNS propagate. For a temporary diagnostic, use an IPv4 address actually returned by the public lookup:
+
+```sh
+# Replace PUBLIC_IPV4 with an address returned by the successful public lookup.
+curl --head --resolve projects.fncai.org:443:PUBLIC_IPV4 https://projects.fncai.org/
+```
+
+This preserves the hostname for HTTPS and certificate verification without modifying DNS or `/etc/hosts`. It tests that connection only; it does not prove ordinary DNS or browser access works. Do not guess an address or disable certificate verification. Avoid permanent Cloudflare IP mappings, which can become stale. If public DNS also returns `NXDOMAIN`, a local override cannot establish correct public DNS configuration.
+
+For a stale macOS DNS cache, after confirming the public record exists, these commands flush the cache and restart the local resolver:
+
+```sh
+sudo dscacheutil -flushcache
+sudo killall -HUP mDNSResponder
+```
+
+They do not change corporate DNS policy or Cloudflare records. Rerun the ordinary DNS/HTTPS verification afterward.
+
+### Dependency warnings
+
+The supplied install log reports nine high-severity findings. The detailed advisory report remains unreviewed because the agent's `npm audit` request could not resolve the npm registry. Run `npm audit` locally and inspect the affected packages and proposed upgrades before choosing a fix. Avoid `npm audit fix --force` without reviewing its breaking changes. Deprecation and install-script warnings did not stop the successful build/upload in that log.
 
 Complete the [acceptance checklist](ACCEPTANCE.md) on the live domain using separate admin, owner, and contributor sessions. Test session persistence, an already signed-in account losing revoked access, private project isolation, and the full proposal → owner assignment/approval → joining → submission → owner acceptance → completion → verified profile-credit workflow. Check narrow-screen layouts and keyboard operation on the deployment.
 

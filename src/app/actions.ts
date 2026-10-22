@@ -57,8 +57,18 @@ export async function signup(_: ActionState, form: FormData): Promise<ActionStat
       email: input.email, password: input.password,
       options: { data: { display_name: input.display_name }, emailRedirectTo: `${appOrigin()}/auth/confirm` },
     });
-    if (error) return { success: false, message: "Account creation was not available. Use your approved email, or contact an administrator." };
+    if (error) return { success: false, message: "Account creation was not available. Use your @ibm.com email or an address approved by an administrator." };
     return { success: true, message: "Check your email to confirm your account, then sign in. Already registered? Use Sign in." };
+  } catch (error) { return errorState(error); }
+}
+export async function resendVerification(_: ActionState, form: FormData): Promise<ActionState> {
+  if (!supabaseConfig()) return { success: false, message: "Email verification is temporarily unavailable." };
+  try {
+    const { email } = resetRequestSchema.parse(values(form));
+    const client = await createClient();
+    const { error } = await client.auth.resend({ type: "signup", email, options: { emailRedirectTo: `${appOrigin()}/auth/confirm` } });
+    if (error) return { success: false, message: "We couldn't send a verification email right now. Wait a moment and try again." };
+    return { success: true, message: "If this address has an unconfirmed account, a new email is on its way. Open the newest email, then select Confirm email on the page." };
   } catch (error) { return errorState(error); }
 }
 export async function requestPasswordReset(_: ActionState, form: FormData): Promise<ActionState> {

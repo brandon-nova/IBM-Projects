@@ -30,14 +30,16 @@ npm run cf:verify
 
 `fncai.org` must be an active zone in the same Cloudflare account. The Worker configuration binds only `projects.fncai.org`; Cloudflare provisions that hostname's DNS and HTTPS. `.env.local` is for local development, while `.env.production` supplies the three public deployment values and overrides local settings during Cloudflare builds. Keep provisioning credentials out of the production file.
 
-Cloudflare tools could not be installed here because network access and automatic approval review are blocked. Run `cf:setup` locally to install them and update the dependency manifest/lockfile; retain those generated dependency changes. The adapter configuration is separate from the Next.js application type check and is validated by the Cloudflare build. No Cloudflare upload, custom-domain change, or live verification has been executed.
+For the requested **homepage-first launch**, this checkout's `.env.production` has `CLOUDFLARE_PUBLIC_PREVIEW=true` with both Supabase fields empty. This publishes the IBM landing and a sign-in availability notice. Supabase authentication and project workflows can be enabled in a later deployment after setup and acceptance.
+
+Cloudflare adapter dependencies are included in the manifest and lockfile. The supplied terminal log confirms a successful OpenNext build and Worker deployment to `projects.fncai.org`. Live verification then failed at DNS lookup (`ENOTFOUND`), so HTTPS and application checks remain unverified. See the [DNS troubleshooting steps](docs/DEPLOYMENT.md#dns-lookup-fails-after-a-successful-deploy). The adapter configuration is separate from the Next.js application type check and is validated by the Cloudflare build.
 
 ## Run the application with hosted Supabase
 
 1. Install Node 24 and run `npm ci` using the provided `package-lock.json`.
 2. If `.env.local` does not exist yet, copy `.env.example` to `.env.local`. Keep any values you have already configured.
 3. Create a Supabase Cloud development project. Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` from its Connect/API settings. Set `NEXT_PUBLIC_APP_URL=http://localhost:3000`. Provisioning scripts need the legacy **server-only** `SUPABASE_SERVICE_ROLE_KEY`; the application itself does not. Do not commit keys.
-4. Apply `supabase/migrations/20261022000100_core.sql` once in the hosted SQL editor, then `supabase/seed.sql`. Alternatively, use `npx supabase login`, `npx supabase link --project-ref YOUR_PROJECT_REF`, and `npx supabase db push` to apply versioned migrations, then apply the skill catalog in the SQL editor. Both methods work without Docker. Use migrations consistently afterward; do not apply the same migration manually and through the CLI.
+4. Apply both SQL files in `supabase/migrations/`, in filename order, once in the hosted SQL editor, then `supabase/seed.sql`. If the core migration is already installed, apply only `20261022000200_ibm_signup.sql`. Alternatively, use `npx supabase login`, `npx supabase link --project-ref YOUR_PROJECT_REF`, and `npx supabase db push` to apply versioned migrations, then apply the skill catalog in the SQL editor. Both methods work without Docker. Use migrations consistently afterward; do not apply the same migration manually and through the CLI.
 5. For a fictional demo, choose a unique password of 12+ characters, set `DEMO_PASSWORD` and `ALLOW_REMOTE_DEMO_SEED=true`, and run `npm run seed`. For an empty workspace instead, use the administrator bootstrap below.
 6. Run `npm run dev` and visit `http://localhost:3000`.
 
@@ -66,7 +68,7 @@ Seeding is repeatable and preserves existing projects and accepted evidence. It 
 
 For an empty deployment, set `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_NAME`, and a unique `BOOTSTRAP_ADMIN_PASSWORD`, then run `npm run bootstrap` from a trusted terminal with that environment’s service-role key. This inserts the approved email, creates an email-confirmed account, and assigns the admin role. Existing passwords are preserved. Remove provisioning secrets from your working environment when finished; the deployed app does not need the service-role key.
 
-Admins then approve individual addresses using **Admin → Manage workspace access**. Access is not granted by an email domain. Public signup cannot bypass the database allowlist. Email changes are unsupported in V1 so approved accounts cannot transfer to unapproved addresses through the Auth API.
+After the IBM signup migration is applied, new accounts with an exact `@ibm.com` address are approved automatically as members; mailbox verification is still required. Admins approve other addresses using **Admin → Manage workspace access**. Explicit revocation overrides domain approval, including for existing sessions and later signup attempts. Email changes are unsupported in V1 so approved accounts cannot transfer to other addresses through the Auth API. See [email setup and troubleshooting](docs/EMAIL_SETUP.md) for the migration and professional confirmation/recovery templates.
 
 ## Core workflow
 
@@ -82,6 +84,7 @@ Approved projects remain published after owner edits. Ownership changes preserve
 ## Security model
 
 - The database guards `auth.users` insertion, not just the signup form. Approved access is bound to an Auth user ID.
+- Exact `@ibm.com` signup creates an approval entry without reactivating revoked entries. It grants no admin role, and workspace access requires verified email ownership.
 - Every protected request and every database mutation checks active access. Revoking access immediately blocks queries/RPCs made with an existing JWT.
 - All application tables use RLS. Application roles have read access through policies and no direct table mutation grants.
 - Mutations use narrowly granted, actor-checked security-definer functions with an empty search path and qualified references. Internal helpers are not executable by application roles.

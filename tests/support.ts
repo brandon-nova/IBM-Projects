@@ -26,17 +26,21 @@ export async function fixtures() {
     if (response.status >= 400) throw new Error(`Test setup/request failed: ${method} ${path.split("?")[0]} returned ${response.status}. Check the migrations and test credentials.`);
     return response.data;
   }
-  async function actor(label: string, admin = false): Promise<Actor> {
-    const email = `test-${runId}-${label}@ibm-projects.example`;
+  async function actor(label: string, admin = false, options: { email?: string; preapprove?: boolean; emailConfirmed?: boolean } = {}): Promise<Actor> {
+    const email = options.email ?? `test-${runId}-${label}@ibm-projects.example`;
     const name = `Fictional ${label} ${runId}`;
-    await ok("/rest/v1/approved_emails","POST",{email,active:true},service);
+    if (options.preapprove !== false) await ok("/rest/v1/approved_emails","POST",{email,active:true},service);
     approved.push(email);
-    const user = await ok<{id:string}>("/auth/v1/admin/users","POST",{email,password,email_confirm:true,user_metadata:{display_name:name,role:"admin"}},service);
+    // Admin user creation exercises the auth.users trigger without sending mail
+    // to fictional @ibm.com test addresses. Never deliver mail to those fixtures.
+    const user = await ok<{id:string}>("/auth/v1/admin/users","POST",{email,password,email_confirm:options.emailConfirmed !== false,user_metadata:{display_name:name,role:"admin"}},service);
     const temporary = {id:user.id,email,password:password!,name,token:""};
     created.push(temporary);
     if (admin) await ok(`/rest/v1/user_roles?user_id=eq.${user.id}`,"PATCH",{role:"admin"},service);
-    const auth = await ok<{access_token:string}>("/auth/v1/token?grant_type=password","POST",{email,password});
-    temporary.token = auth.access_token;
+    if (options.emailConfirmed !== false) {
+      const auth = await ok<{access_token:string}>("/auth/v1/token?grant_type=password","POST",{email,password});
+      temporary.token = auth.access_token;
+    }
     return temporary;
   }
   async function rpc<T = string>(user: Actor, name: string, args: unknown) { return ok<T>(`/rest/v1/rpc/${name}`,"POST",args,user.token); }

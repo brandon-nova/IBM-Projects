@@ -9,7 +9,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { initialState, type FormAction } from "@/lib/action-state";
 import { loginSchema, signupSchema, resetRequestSchema, passwordSchema, projectSchema, profileSchema, deliverableSchema } from "@/lib/validation";
-import { login, signup, requestPasswordReset, updatePassword, createProject, editProject, saveProfile, submitDeliverable, searchInterest } from "@/app/actions";
+import { login, signup, resendVerification, requestPasswordReset, updatePassword, createProject, editProject, saveProfile, submitDeliverable, searchInterest } from "@/app/actions";
 
 type Field<T extends FieldValues> = { name: Path<T>; label: string; type?: string; placeholder?: string; hint?: string; required?: boolean; autoComplete?: string; maxLength?: number };
 function FieldsForm<T extends FieldValues>({ schema, defaults, fields, action, label, hidden = {} }: {
@@ -44,12 +44,13 @@ function FieldsForm<T extends FieldValues>({ schema, defaults, fields, action, l
   </form>;
 }
 
-export function AuthForm({ mode }: { mode: "login" | "signup" | "reset" | "password" }) {
+export function AuthForm({ mode }: { mode: "login" | "signup" | "verify" | "reset" | "password" }) {
   if (mode === "signup") return <FieldsForm schema={signupSchema} defaults={{ display_name: "", email: "", password: "" }} action={signup} label="Create account" fields={[
     { name: "display_name", label: "Your name", required: true, autoComplete: "name", maxLength: 80 },
-    { name: "email", label: "Approved email", type: "email", required: true, autoComplete: "email" },
+    { name: "email", label: "Work email", type: "email", required: true, autoComplete: "email", hint: "@ibm.com addresses are approved automatically. Other addresses need administrator approval." },
     { name: "password", label: "Password", type: "password", required: true, autoComplete: "new-password", hint: "At least 12 characters.", maxLength: 128 },
   ]} />;
+  if (mode === "verify") return <FieldsForm schema={resetRequestSchema} defaults={{ email: "" }} action={resendVerification} label="Send verification email" fields={[{ name: "email", label: "Email", type: "email", required: true, autoComplete: "email" }]} />;
   if (mode === "reset") return <FieldsForm schema={resetRequestSchema} defaults={{ email: "" }} action={requestPasswordReset} label="Send reset link" fields={[{ name: "email", label: "Email", type: "email", required: true, autoComplete: "email" }]} />;
   if (mode === "password") return <FieldsForm schema={passwordSchema} defaults={{ password: "" }} action={updatePassword} label="Save new password" fields={[{ name: "password", label: "New password", type: "password", required: true, autoComplete: "new-password", hint: "At least 12 characters.", maxLength: 128 }]} />;
   return <FieldsForm schema={loginSchema} defaults={{ email: "", password: "" }} action={login} label="Sign in" fields={[
