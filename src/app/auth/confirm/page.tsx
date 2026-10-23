@@ -3,7 +3,7 @@ import { Brand, Footer } from "@/components/shell";
 import { Button } from "@/components/ui/button";
 import { supabaseConfig } from "@/lib/config";
 import { readEmailConfirmation } from "@/lib/email-confirmation";
-import { confirmEmail } from "./actions";
+import { EmailConfirmationForm } from "@/components/email-confirmation-form";
 
 export const dynamic = "force-dynamic";
 
@@ -16,13 +16,10 @@ export default async function ConfirmEmail({ searchParams }: { searchParams: Pro
     <header className="auth-header"><Brand /></header>
     <main className="auth-card" id="main">
       <p className="eyebrow">Your workspace</p>
-      <h1>{!configured ? "Sign-in is coming soon." : !link ? "Let’s get you a new link." : recovery ? "Reset your password." : link.kind === "code" ? "Continue to your account." : "Confirm your email."}</h1>
-      <p className="muted">{!configured ? "We’re getting this workspace ready. Please try again when sign-in is available." : !link ? "This link is incomplete or could not be verified. Request a fresh email and open the newest link." : recovery ? "Continue to choose a new password. Opening this page has not used your link." : "Select the button below to continue securely. Opening this page has not used your link."}</p>
-      {configured && link ? <form action={confirmEmail}>
-        {link.kind === "token" ? <><input type="hidden" name="token_hash" value={link.tokenHash} /><input type="hidden" name="type" value={link.type} /></> : <input type="hidden" name="code" value={link.code} />}
-        <Button type="submit">{recovery ? "Continue to reset password" : link.kind === "code" ? "Continue securely" : "Confirm email"}</Button>
-      </form> : <Button asChild><Link href={configured ? "/login?mode=verify" : "/"}>{configured ? "Send a new verification email" : "Back to homepage"}</Link></Button>}
-      {configured && <div className="auth-links"><Link className="text-link" href="/login">Back to sign in</Link><Link className="text-link" href="/login?mode=reset">Request a password reset</Link></div>}
+      <h1>{!configured ? "Sign-in is coming soon." : !link ? "Let’s get you a new link." : recovery ? "Reset your password." : "Let’s get you signed in."}</h1>
+      <p className="muted">{!configured ? "We’re getting this workspace ready. Please try again when sign-in is available." : !link ? "This link is incomplete or could not be verified. Request a fresh email and open the newest link." : recovery ? "Continue to choose a new password." : "We’ll verify your email and take you into your workspace automatically."}</p>
+      {configured && link ? <EmailConfirmationForm link={link} /> : <Button asChild><Link href={configured ? "/login?mode=verify" : "/"}>{configured ? "Send a new verification email" : "Back to homepage"}</Link></Button>}
+      {configured && <div className="auth-links"><Link className="text-link" href="/login">Sign in</Link>{link && <Link className="text-link" href="/login?mode=verify">Request a new verification email</Link>}<Link className="text-link" href="/login?mode=reset">Request a password reset</Link></div>}
     </main>
     <Footer />
   </div>;

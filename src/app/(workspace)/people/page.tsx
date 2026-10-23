@@ -14,7 +14,7 @@ export default async function People({ searchParams }: { searchParams: Promise<R
   const skill = typeof params.skill === "string" ? params.skill : "";
   const learning = typeof params.learning === "string" ? params.learning : "";
   const hours = typeof params.hours === "string" ? params.hours : "";
-  const people = data.profiles.filter((p) => (!q || p.display_name.toLowerCase().includes(q.toLowerCase()))
+  const people = data.profiles.filter((p) => !p.hidden_from_people && (!q || p.display_name.toLowerCase().includes(q.toLowerCase()))
     && (!skill || personTags(data,p.user_id,"existing").some((s) => s.name === skill))
     && (!learning || personTags(data,p.user_id,"learning").some((s) => s.name === learning))
     && (!hours || (data.availability.find((a) => a.user_id === p.user_id)?.available_hours ?? 0) >= Number(hours)));

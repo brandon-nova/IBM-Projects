@@ -16,9 +16,25 @@ test("a contribution goes from proposal to owner-verified profile credit", async
     const [admin,owner,contributor] = await Promise.all([f.actor("browser-admin",true),f.actor("browser-owner"),f.actor("browser-contributor")]);
     const [adminPage,ownerPage,contributorPage] = await Promise.all(contexts.map((c)=>c.newPage()));
     await Promise.all([login(adminPage,admin),login(ownerPage,owner),login(contributorPage,contributor)]);
+    await adminPage.goto(`/people/${admin.id}?edit=1`);
+    await adminPage.getByLabel("People visibility",{exact:true}).selectOption("true");
+    await adminPage.getByRole("button",{name:"Save visibility",exact:true}).click();
+    await expect(adminPage.getByText("People visibility saved.",{exact:true})).toBeVisible();
+    await contributorPage.goto(`/people?q=${encodeURIComponent(admin.name)}`);
+    await expect(contributorPage.getByRole("link",{name:admin.name,exact:true})).toHaveCount(0);
+    await contributorPage.goto(`/people/${admin.id}`);
+    await expect(contributorPage.getByRole("heading",{name:admin.name,exact:true})).toBeVisible();
+    await contributorPage.goto(`/people/${contributor.id}?edit=1`);
+    await expect(contributorPage.getByLabel("People visibility",{exact:true})).toHaveCount(0);
+    await adminPage.getByLabel("People visibility",{exact:true}).selectOption("false");
+    await adminPage.getByRole("button",{name:"Save visibility",exact:true}).click();
+    await expect(adminPage.getByLabel("People visibility",{exact:true})).toHaveValue("false");
+    await contributorPage.goto(`/people?q=${encodeURIComponent(admin.name)}`);
+    await expect(contributorPage.getByRole("link",{name:admin.name,exact:true})).toBeVisible();
+    await contributorPage.goto("/");
     await expect(contributorPage.getByRole("heading",{name:/What do you want to/})).toBeVisible();
-    await expect(contributorPage.getByRole("link",{name:"Browse projects",exact:true})).toBeVisible();
-    await expect(contributorPage.getByRole("link",{name:"Create a project",exact:true})).toBeVisible();
+    await expect(contributorPage.getByRole("link",{name:"Browse challenges",exact:true})).toBeVisible();
+    await expect(contributorPage.getByRole("link",{name:"Post a challenge",exact:true})).toBeVisible();
     expect(await contributorPage.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
     const title = `A useful microproject ${f.runId}`;
@@ -70,7 +86,7 @@ test("a contribution goes from proposal to owner-verified profile credit", async
     await ownerPage.goto(`/people/${owner.id}`);
     await expect(ownerPage.getByText("Verified",{exact:true})).toHaveCount(0);
     await contributorPage.goto("/");
-    for (const name of ["Profile","Learning","Projects"]) await expect(contributorPage.getByRole("heading",{name,exact:true})).toBeVisible();
+    for (const name of ["Profile","Learning","Challenges"]) await expect(contributorPage.getByRole("heading",{name,exact:true})).toBeVisible();
   } finally {
     await Promise.all(contexts.map((c)=>c.close()));
     await f.cleanup();

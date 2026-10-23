@@ -34,6 +34,8 @@ For repository maintenance, `npm run db:setup-file` regenerates the combined fil
 
 ## 3. Create your administrator login
 
+If you installed the database before the account-repair update, first copy [20261022000300_repair_account_records.sql](../supabase/migrations/20261022000300_repair_account_records.sql) into [Supabase SQL Editor](https://supabase.com/dashboard/project/hatvbfuznerrprpuccpj/sql/new) and click **Run**. Do not rerun the combined setup over existing tables. Fresh installs using the current combined setup already include this update.
+
 In Supabase, click **Project Settings → API Keys → Legacy API keys**. Copy the `service_role` key.
 
 In `.env.local`, fill in these existing lines:
@@ -53,7 +55,7 @@ In the project terminal, run:
 npm run bootstrap
 ```
 
-This creates your admin account with email already confirmed. If the account already exists, its password stays the same.
+This creates a new confirmed administrator, or repairs the profile/access binding for an existing confirmed account and assigns its admin role in one transaction. Existing passwords, profile details, skills, and availability stay the same. Explicitly revoked or differently bound access stops provisioning for administrator investigation.
 
 ## 4. Open the app on your Mac
 

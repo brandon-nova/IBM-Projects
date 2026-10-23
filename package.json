@@ -19,14 +19,17 @@
     "cf:verify": "node scripts/verify-deployment.mjs",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test tests/domain.test.ts tests/email-confirmation.test.ts tests/cloudflare.test.mjs",
+    "test": "node --experimental-strip-types --test tests/domain.test.ts tests/password-confirmation.test.ts tests/email-confirmation.test.ts tests/cloudflare.test.mjs tests/auth-feedback.test.ts tests/auth-inspection.test.mjs tests/provisioning.test.mjs tests/reset-test-account.test.mjs",
     "test:integration": "node --env-file-if-exists=.env.test --test tests/integration.test.mjs",
     "test:e2e": "playwright test",
     "db:start": "supabase start",
     "db:reset": "supabase db reset",
     "db:setup-file": "node scripts/generate-database-setup.mjs",
     "seed": "node --env-file-if-exists=.env.local scripts/seed.mjs",
-    "bootstrap": "node --env-file-if-exists=.env.local scripts/bootstrap.mjs"
+    "bootstrap": "node --env-file-if-exists=.env.local scripts/bootstrap.mjs",
+    "auth:check": "node scripts/check-auth.mjs",
+    "auth:inspect": "node --env-file-if-exists=.env.local scripts/inspect-auth.mjs",
+    "auth:reset-test": "node --env-file-if-exists=.env.local scripts/reset-test-account.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

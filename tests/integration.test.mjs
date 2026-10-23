@@ -65,6 +65,71 @@ test("real Supabase: access, RLS, ownership, contribution verification, and comp
         assert.ok(rejected.status >= 400,`${domain} must not receive automatic approval`);
       }
     });
+    await t.test("service-only record repair restores legacy accounts and preserves revocations", async () => {
+      const legacy = await f.actor("legacy-repair");
+      const args = {p_user_id:legacy.id,p_display_name:"Repaired fictional member",p_admin:false};
+      const anonymous = await f.call("/rest/v1/rpc/provision_workspace_records","POST",args);
+      assert.ok(anonymous.status >= 400);
+      await denied(owner,"provision_workspace_records",args);
+      await denied(admin,"provision_workspace_records",{...args,p_admin:true});
+      // This fixture owns no projects; emulate a login created before app tables.
+      await f.ok(`/rest/v1/profiles?user_id=eq.${legacy.id}`,"DELETE",undefined,f.service);
+      await f.ok(`/rest/v1/approved_emails?email=eq.${encodeURIComponent(legacy.email)}`,"DELETE",undefined,f.service);
+      for (let attempt=0;attempt<2;attempt++) {
+        assert.equal(await f.ok("/rest/v1/rpc/provision_workspace_records","POST",args,f.service),legacy.id);
+      }
+      assert.equal(await f.rpc(legacy,"workspace_active",{}),true);
+      const [profile] = await f.ok(`/rest/v1/profiles?user_id=eq.${legacy.id}`,"GET",undefined,f.service);
+      assert.equal(profile.display_name,args.p_display_name);
+      await f.ok(`/rest/v1/profiles?user_id=eq.${legacy.id}`,"PATCH",{bio:"Keep existing fictional profile details"},f.service);
+      await f.ok("/rest/v1/rpc/provision_workspace_records","POST",{...args,p_admin:true},f.service);
+      await f.ok("/rest/v1/rpc/provision_workspace_records","POST",{...args,p_display_name:"Do not replace name"},f.service);
+      const [preserved] = await f.ok(`/rest/v1/profiles?user_id=eq.${legacy.id}`,"GET",undefined,f.service);
+      assert.equal(preserved.display_name,args.p_display_name);
+      assert.equal(preserved.bio,"Keep existing fictional profile details");
+      const [role] = await f.ok(`/rest/v1/user_roles?user_id=eq.${legacy.id}`,"GET",undefined,f.service);
+      assert.equal(role.role,"admin","member provisioning must not downgrade an existing administrator");
+      await f.rpc(admin,"manage_access",{p_email:legacy.email,p_active:false});
+      const revoked = await f.call("/rest/v1/rpc/provision_workspace_records","POST",args,f.service);
+      assert.ok(revoked.status >= 400);
+      assert.equal(await f.rpc(legacy,"workspace_active",{}),false);
+      const unconfirmed = await f.actor("repair-unconfirmed",false,{emailConfirmed:false});
+      const rejected = await f.call("/rest/v1/rpc/provision_workspace_records","POST",{...args,p_user_id:unconfirmed.id},f.service);
+      assert.ok(rejected.status >= 400,"repair must not bypass email confirmation");
+    });
+    await t.test("directory visibility is optional, self-only, and restricted to active admins", async () => {
+      const directoryAdmin = await f.actor("directory-admin",true);
+      const profilePath = `/rest/v1/profiles?user_id=eq.${directoryAdmin.id}`;
+      const args = {p_hidden:true};
+      const [initial] = await f.ok(profilePath,"GET",undefined,owner.token);
+      assert.equal(initial.hidden_from_people,false);
+      const anonymous = await f.call("/rest/v1/rpc/set_directory_visibility","POST",args);
+      assert.ok(anonymous.status >= 400);
+      await denied(owner,"set_directory_visibility",args);
+      await denied(directoryAdmin,"set_directory_visibility",{p_hidden:null});
+      const direct = await f.call(profilePath,"PATCH",{hidden_from_people:true},directoryAdmin.token);
+      assert.ok(direct.status >= 400,"direct writes must not bypass the admin-only operation");
+      const forged = await f.call("/rest/v1/rpc/set_directory_visibility","POST",{...args,p_user_id:owner.id},directoryAdmin.token);
+      assert.ok(forged.status >= 400,"the operation accepts no target user");
+      assert.equal(await f.rpc(directoryAdmin,"set_directory_visibility",args),directoryAdmin.id);
+      const [hidden] = await f.ok(profilePath,"GET",undefined,owner.token);
+      assert.equal(hidden.hidden_from_people,true);
+      assert.equal(hidden.display_name,initial.display_name,"project attribution must remain available");
+      const directory = await f.ok("/rest/v1/profiles?hidden_from_people=eq.false","GET",undefined,owner.token);
+      assert.ok(!directory.some((p) => p.user_id === directoryAdmin.id));
+      assert.equal(await f.rpc(directoryAdmin,"workspace_active",{}),true);
+      await f.rpc(directoryAdmin,"set_directory_visibility",{p_hidden:false});
+      const [shown] = await f.ok(profilePath,"GET",undefined,owner.token);
+      assert.equal(shown.hidden_from_people,false);
+      await f.rpc(directoryAdmin,"set_directory_visibility",args);
+      await f.rpc(admin,"manage_access",{p_email:directoryAdmin.email,p_active:false});
+      await denied(directoryAdmin,"set_directory_visibility",{p_hidden:false});
+      await f.rpc(admin,"manage_access",{p_email:directoryAdmin.email,p_active:true});
+      await f.rpc(admin,"set_user_role",{p_user_id:directoryAdmin.id,p_role:"member"});
+      const [demoted] = await f.ok(profilePath,"GET",undefined,owner.token);
+      assert.equal(demoted.hidden_from_people,false,"former admins return to the member directory");
+      await denied(directoryAdmin,"set_directory_visibility",args);
+    });
     const project = await f.rpc(owner,"create_project",{p_title:`Core workflow ${f.runId}`,p_description:"Build a useful result using fictional test inputs.",p_skills:["Python"],p_estimated_hours:3});
     await t.test("private projects and relationships remain inaccessible by known ID", async () => {
       for (const [table,key] of [["projects","id"],["project_members","project_id"],["project_skills","project_id"]]) {

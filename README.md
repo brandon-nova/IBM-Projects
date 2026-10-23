@@ -40,6 +40,10 @@ Cloudflare adapter dependencies are included in the manifest and lockfile. The s
 
 ## Run the application with hosted Supabase
 
+**Optional admin visibility:** Open your own profile → **Edit profile → People visibility** to hide or show yourself in People search. Accounts start visible. Hiding preserves profile links, project attribution, and access; it is not a private or anonymous account. Only active admins can change their own preference. Demoting an admin restores directory visibility.
+
+For an existing database, paste [the admin visibility migration](supabase/migrations/20261022000400_admin_directory_visibility.sql) into **Supabase → SQL Editor → New query → Run**, then deploy the app with `npm run cf:deploy`. Do not rerun `setup.sql` on an existing database.
+
 1. Install Node 24 and run `npm ci` using the provided `package-lock.json`.
 2. If `.env.local` does not exist yet, copy `.env.example` to `.env.local`. Keep any values you have already configured.
 3. Create a Supabase Cloud development project. Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` from its Connect/API settings. Set `NEXT_PUBLIC_APP_URL=http://localhost:3000`. Provisioning scripts need the legacy **server-only** `SUPABASE_SERVICE_ROLE_KEY`; the application itself does not. Do not commit keys.
@@ -70,7 +74,7 @@ Seeding is repeatable and preserves existing projects and accepted evidence. It 
 
 ### Administrator bootstrap
 
-For an empty deployment, set `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_NAME`, and a unique `BOOTSTRAP_ADMIN_PASSWORD`, then run `npm run bootstrap` from a trusted terminal with that environment’s service-role key. This inserts the approved email, creates an email-confirmed account, and assigns the admin role. Existing passwords are preserved. Remove provisioning secrets from your working environment when finished; the deployed app does not need the service-role key.
+For an empty deployment, set `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_NAME`, and a unique `BOOTSTRAP_ADMIN_PASSWORD`, then run `npm run bootstrap` from a trusted terminal with that environment’s service-role key. This inserts the approved email, creates an email-confirmed account, and assigns the admin role. Existing passwords are preserved. Existing confirmed accounts also receive missing profile, role, availability, and access-binding records transactionally. Apply [the account-repair migration](supabase/migrations/20261022000300_repair_account_records.sql) first on databases installed before this update. Explicit revocations and conflicting account bindings stop repair. Remove provisioning secrets from your working environment when finished; the deployed app does not need the service-role key.
 
 After the IBM signup migration is applied, new accounts with an exact `@ibm.com` address are approved automatically as members; mailbox verification is still required. Admins approve other addresses using **Admin → Manage workspace access**. Explicit revocation overrides domain approval, including for existing sessions and later signup attempts. Email changes are unsupported in V1 so approved accounts cannot transfer to other addresses through the Auth API. See [email setup and troubleshooting](docs/EMAIL_SETUP.md) for the migration and professional confirmation/recovery templates.
 
@@ -126,3 +130,5 @@ See [the acceptance record](docs/ACCEPTANCE.md) for checks actually run and [dep
 `/`, `/login`, `/projects`, `/projects/new`, `/projects/[projectId]`, `/projects/[projectId]/edit`, `/people`, `/people/[userId]`, `/learning`, `/admin`, `/auth/confirm`, `/reset-password`.
 
 There are no organization slugs, SSO assumptions, social features, or native external-tool integrations.
+
+Signup or verification email failing? See [the email debugging steps](docs/AUTH_DEBUGGING.md), including the exact SMTP fields and where to find logs. Run `npm run auth:check` for read-only configuration and connectivity checks, or `npm run auth:inspect` to check a recipient’s account/confirmation status using your local administrator credentials.

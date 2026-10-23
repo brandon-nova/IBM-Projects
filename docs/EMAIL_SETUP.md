@@ -2,6 +2,8 @@
 
 Use your existing Supabase project. Complete these steps in order. The links below open that project's dashboard.
 
+**Signup failing or no email provider yet?** Start with [the short troubleshooting guide](AUTH_DEBUGGING.md). Custom SMTP needs a real provider account and a verified sender domain.
+
 ## 1. Allow IBM email addresses
 
 If you have not created the app tables yet, open [setup.sql](../supabase/setup.sql) in VS Code and copy **all its contents**. Open [Supabase → SQL Editor → New query](https://supabase.com/dashboard/project/hatvbfuznerrprpuccpj/sql/new), paste it, and click **Run**. The result should say **Database setup complete**. This creates all tables and enables IBM signup together; do not run the individual migrations afterward.
@@ -52,19 +54,21 @@ Open [Authentication → Sign In / Providers](https://supabase.com/dashboard/pro
 
 Supabase's built-in email service restricts recipients. To send signup emails to employees beyond your Supabase project team, configure **Custom SMTP**.
 
-1. Open [Resend](https://resend.com), sign in, then choose **Domains → Add domain**. Enter `auth.fncai.org`.
+1. Open [Resend](https://resend.com), sign in, then choose **Domains → Add domain**. Enter `fncai.org` (or `m.fncai.org` if you prefer).
 2. Add the DNS records Resend displays in **Cloudflare → fncai.org → DNS → Records**. Return to Resend and wait for the domain to show **Verified**.
 3. In Resend, open **API Keys → Create API key**. Keep this key private.
 4. Open [Supabase → Authentication → SMTP Settings](https://supabase.com/dashboard/project/hatvbfuznerrprpuccpj/auth/smtp), enable **Custom SMTP**, and enter:
 
 | Field | Value |
 | --- | --- |
-| Sender email | `no-reply@auth.fncai.org` |
+| Sender email | `no-reply@fncai.org` |
 | Sender name | `IBM Projects` |
 | Host | `smtp.resend.com` |
 | Port | `465` |
 | Username | `resend` |
 | Password | Your Resend API key |
+
+If you chose `m.fncai.org`, use `no-reply@m.fncai.org` instead. Existing `auth.fncai.org` DNS records can remain while you verify the new domain; the sender must match the domain verified in Resend.
 
 Click **Save**. Verify these settings against the provider's current dashboard and check its free-plan limits before sending. Disable authentication-email click tracking if enabled. Use a sender domain you control; recipient auto-approval does not authorize an `@ibm.com` sender.
 
@@ -94,7 +98,9 @@ The first command builds and publishes the updated app. The second checks the li
 
 Open [the live resend page](https://projects.fncai.org/login?mode=verify), enter your unconfirmed account's email, and click **Send verification email**. If you have not created an account yet, use **Create an account** first.
 
-Open the **newest** email, click **Verify email**, then select **Confirm email** on the page. Old emails are not repaired by the template change. Test password recovery separately with **Forgot password?**.
+Open the **newest** email and click **Verify email**. The page verifies your address and signs you in automatically. If JavaScript is unavailable, select **Verify and sign in** on the page. Old emails are not repaired by the template change. Test password recovery separately with **Forgot password?**.
+
+After success, the homepage displays **Email verified successfully.** Reopening that same link in the same signed-in browser continues to the success message. This uses a browser hint for the last verified link (30 days) plus a fresh check of the same confirmed account and active workspace access; the hint grants no access. Signed-out users and other browsers must sign in normally after a link has been used. Signup and new-password forms require matching **Password** and **Confirm password** entries.
 
 These are setup instructions, not a record that hosted settings or delivered emails have been verified.
 
@@ -104,7 +110,7 @@ These are setup instructions, not a record that hosted settings or delivered ema
 ## Troubleshoot an immediately invalid link
 
 - **Default or old template:** install both provided templates, deploy the new app, and request a fresh message. The old handler only accepted token hashes; the new handler also accepts PKCE codes.
-- **Email scanner/prefetch:** use the custom template's direct application link and explicit confirmation button. A scanner following a provider's verification URL can consume that token before the user clicks it.
+- **Email scanner/prefetch:** use the custom template's direct application link. Plain GET previews do not redeem tokens; the browser submits once after the page loads. Scanners that execute JavaScript can still consume one-time links. If a link was used, try signing in or request a fresh email.
 - **Different browser or blocked cookies:** PKCE callbacks require the initiating browser's verifier cookie. Request another email or use the provided token-hash template.
 - **Old/reused email:** a new message may replace an earlier token. Open the newest one and do not reuse a successfully redeemed link.
 - **Wrong destination:** compare the email's hostname with Supabase Site URL, the redirect allowlist, and the app's public origin. Never paste a full live token URL into logs or chat.

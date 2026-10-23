@@ -9,6 +9,7 @@ import { appOrigin, supabaseConfig } from "@/lib/config";
 import { normalizeInterest, splitSkills } from "@/lib/domain";
 import { accessSchema, deliverableSchema, idSchema, interestSchema, loginSchema, passwordSchema, profileSchema, projectSchema, resetRequestSchema, signupSchema } from "@/lib/validation";
 import type { ActionState } from "@/lib/action-state";
+import { authFailure } from "@/lib/auth-feedback";
 
 type Client = Awaited<ReturnType<typeof createClient>>;
 type DbError = { code?: string; message: string };
@@ -57,9 +58,9 @@ export async function signup(_: ActionState, form: FormData): Promise<ActionStat
       email: input.email, password: input.password,
       options: { data: { display_name: input.display_name }, emailRedirectTo: `${appOrigin()}/auth/confirm` },
     });
-    if (error) return { success: false, message: "Account creation was not available. Use your @ibm.com email or an address approved by an administrator." };
-    return { success: true, message: "Check your email to confirm your account, then sign in. Already registered? Use Sign in." };
-  } catch (error) { return errorState(error); }
+    if (error) return authFailure("signup", error);
+    return { success: true, message: "Check your inbox and spam folder. Open the newest verification email and select Verify email to confirm your address and sign in. Already registered? Sign in or resend verification." };
+  } catch (error) { return error instanceof z.ZodError ? errorState(error) : authFailure("signup", error); }
 }
 export async function resendVerification(_: ActionState, form: FormData): Promise<ActionState> {
   if (!supabaseConfig()) return { success: false, message: "Email verification is temporarily unavailable." };
@@ -67,9 +68,9 @@ export async function resendVerification(_: ActionState, form: FormData): Promis
     const { email } = resetRequestSchema.parse(values(form));
     const client = await createClient();
     const { error } = await client.auth.resend({ type: "signup", email, options: { emailRedirectTo: `${appOrigin()}/auth/confirm` } });
-    if (error) return { success: false, message: "We couldn't send a verification email right now. Wait a moment and try again." };
-    return { success: true, message: "If this address has an unconfirmed account, a new email is on its way. Open the newest email, then select Confirm email on the page." };
-  } catch (error) { return errorState(error); }
+    if (error) return authFailure("resend", error);
+    return { success: true, message: "If this address has an unconfirmed account, we requested a new verification email. Check your inbox and spam folder. Select Verify email in the newest message to confirm your address and sign in." };
+  } catch (error) { return error instanceof z.ZodError ? errorState(error) : authFailure("resend", error); }
 }
 export async function requestPasswordReset(_: ActionState, form: FormData): Promise<ActionState> {
   if (!supabaseConfig()) return { success: false, message: "Configure Supabase to enable password recovery." };
@@ -77,9 +78,9 @@ export async function requestPasswordReset(_: ActionState, form: FormData): Prom
     const { email } = resetRequestSchema.parse(values(form));
     const client = await createClient();
     const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo: `${appOrigin()}/auth/confirm` });
-    if (error) return { success: false, message: "Password recovery is temporarily unavailable. Try again or contact an administrator." };
-    return { success: true, message: "If this address has an account, a password-reset email is on its way." };
-  } catch (error) { return errorState(error); }
+    if (error) return authFailure("recovery", error);
+    return { success: true, message: "If this address has an account, we requested a password-reset email. Check your inbox and spam folder." };
+  } catch (error) { return error instanceof z.ZodError ? errorState(error) : authFailure("recovery", error); }
 }
 export async function updatePassword(_: ActionState, form: FormData): Promise<ActionState> {
   await requireViewer();
@@ -103,6 +104,11 @@ export async function saveProfile(_: ActionState, form: FormData) {
       p_existing_skills: splitSkills(v.existing_skills), p_learning_skills: splitSkills(v.learning_skills),
       p_available_hours: v.available_hours === "" ? null : Number(v.available_hours) });
   }, "Profile saved.");
+}
+export async function setDirectoryVisibility(_: ActionState, form: FormData) {
+  return mutate((client) => client.rpc("set_directory_visibility", {
+    p_hidden: booleanField(form, "hidden_from_people"),
+  }), "People visibility saved.");
 }
 export async function searchInterest(_: ActionState, form: FormData) {
   let query = "";

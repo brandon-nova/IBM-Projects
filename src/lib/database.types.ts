@@ -1,6 +1,6 @@
 import type { ApprovalStatus, Role, SubmissionStatus, WorkStatus } from "./domain";
 
-export type Profile = { user_id: string; display_name: string; bio: string; created_at: string; updated_at: string };
+export type Profile = { user_id: string; display_name: string; bio: string; hidden_from_people: boolean; created_at: string; updated_at: string };
 export type Project = {
   id: string; creator_id: string; owner_id: string | null; title: string; description: string;
   estimated_hours: number | null; visibility: "private" | "organization"; approval_status: ApprovalStatus;
@@ -32,6 +32,7 @@ export type Database = {
       project_visible: Rpc<{ p_project_id: string }, boolean>;
       project_member: Rpc<{ p_project_id: string }, boolean>;
       save_profile: Rpc<{ p_display_name: string; p_bio: string; p_existing_skills: string[]; p_learning_skills: string[]; p_available_hours: number | null }>;
+      set_directory_visibility: Rpc<{ p_hidden: boolean }>;
       save_interest: Rpc<{ p_interest: string }>;
       create_project: Rpc<ProjectInput>;
       edit_project: Rpc<ProjectInput & { p_project_id: string }>;

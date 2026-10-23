@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowUpRight, LogOut } from "lucide-react";
+import { ArrowUpRight, LogOut, PanelsTopLeft } from "lucide-react";
 import { getViewer } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { initials } from "@/lib/domain";
@@ -7,7 +7,7 @@ import { logout } from "@/app/actions";
 import { Button } from "./ui/button";
 
 export function Brand() {
-  return <Link href="/" className="brand" aria-label="IBM home"><span className="brand-name">IBM</span><span className="brand-divider" aria-hidden="true" /><span className="brand-description">Projects</span></Link>;
+  return <Link href="/" className="brand" aria-label="IBM home"><span className="brand-symbol"><PanelsTopLeft size={20} strokeWidth={1.6} aria-hidden="true" /></span><span className="brand-workspace">IBM</span></Link>;
 }
 export function Footer() {
   return <footer className="site-footer"><span><strong>IBM</strong><span className="footer-divider" aria-hidden="true">/</span>Find work worth doing.</span><span>Development preview · Fictional people and projects</span></footer>;
@@ -18,7 +18,7 @@ export async function WorkspaceShell({ children }: { children: React.ReactNode }
   const client = await createClient();
   const { count, error } = await client.from("project_members").select("*", { count: "exact", head: true }).eq("user_id", viewer.id).eq("membership_status", "active");
   if (error) throw new Error("Could not load your navigation.");
-  const links = count ? [["/", "Home"], ["/projects", "Projects"], ["/people", "People"], ["/learning", "Learning"], [`/people/${viewer.id}`, "Profile"]] : [["/projects", "Projects"], ["/people", "People"]];
+  const links = count ? [["/", "Home"], ["/projects", "Challenges"], ["/people", "People"], ["/learning", "Learning"], [`/people/${viewer.id}`, "Profile"]] : [["/projects", "Challenges"], ["/people", "People"]];
   return <div className="app-frame">
     <a href="#main" className="skip-link">Skip to content</a>
     <header className="site-header">

@@ -8,8 +8,7 @@ if (!local && process.env.ALLOW_REMOTE_DEMO_SEED !== "true") throw new Error("Ho
 const names = ["Morgan Vale", "Alex Rowan", "Jamie Brooks", "Sam Ellis", "Taylor Quinn", "Casey Rivers"];
 const emails = ["admin", "alex", "jamie", "sam", "taylor", "casey"].map((s) => `${s}@ibm-projects.example`);
 const users = [];
-for (let i=0;i<names.length;i++) users.push(await provision(config, emails[i], names[i], password));
-await request(config, `/rest/v1/user_roles?user_id=eq.${users[0].id}`, { role: "admin" }, "PATCH");
+for (let i=0;i<names.length;i++) users.push(await provision(config, emails[i], names[i], password, { admin: i === 0 }));
 const tokens = [];
 for (const email of emails) tokens.push(await signIn(config,email,password));
 const skills = [
