@@ -1,3 +1,32 @@
+# Single-field project owner selection — October 23, 2026
+
+Replaced the separate owner search and select with one editable combobox. Admin creation shows the creating admin's name by default and submits the selected owner's UUID. Typing filters names; clicking a result or using arrows/Enter selects it. Escape or leaving an unfinished search restores the selected name. Approval/reassignment uses the same control. Options indicate the current owner, honor pending form submissions, and use the light/dark theme. No backend, SQL, or permission changes were needed.
+
+Executed for this change: **TypeScript, ESLint, Next.js production build, Cloudflare/OpenNext build, compiled application/confirmation smoke checks, and `git diff --check` passed**. Mocked compiled checks verify the default name/UUID and removal of the second owner select. Added browser assertions for default selection, no matches, Escape/blur cancellation, keyboard selection, and click-based approval assignment.
+
+Browser execution stopped before any cases ran: `npm run test:e2e -- tests/e2e/project-board.spec.ts` could not start the local server (`listen EPERM 127.0.0.1:3000`). Actual visual/keyboard behavior and real Supabase owner assignment remain unverified. No deployment was performed; this UI change needs only `npm run cf:deploy` once the prior database update is installed.
+
+---
+
+# Project boards and admin creation — October 23, 2026
+
+Implemented locally at the user's request. No hosted schema update or deployment was performed.
+
+- Project forms now say **Description** and **Estimated hours per week**. Cards, details, and invitations show weekly effort. Card title/description spacing is reduced; a specific heading rule removes the detail page's unintended 36px bottom margin. New descriptions show a 300-character counter and are enforced by the server schema and a database insert trigger, including direct/legacy RPCs. Existing longer descriptions remain readable/editable without truncation.
+- Native Kanban is the default for existing and new projects. Persisted tasks support titles, descriptions, participant assignments, edits, confirmed deletion, and movement among To Do, In Progress, and Done. Dragging appends to the destination; native selects and Move buttons provide the keyboard/mobile alternative. Positions are simple persisted integers. Task changes lock the project row and serialize with completion, membership changes, and board-mode changes.
+- Only participants/admins may mutate native tasks. Authorized workspace users may read published boards; private boards use the existing project visibility policy. Direct table writes and internal helper execution are denied. New assignees must be active project participants. Cross-project task IDs are rejected. Accepted contribution/completion rules are unchanged: Done cards do not produce contribution credit.
+- Owners/admins can select native or external mode and save a validated HTTP/HTTPS URL. Switching never deletes or rewrites tasks, and preserves the last external URL. External mode blocks native writes; completed boards are read-only. General resource Links remain available independently.
+- Admin creation now defaults the official owner to the acting admin and offers a searchable owner picker. A dedicated, admin-only RPC creates the proposal, assigns the chosen eligible owner, adds creator/owner participation, and publishes atomically. Employees still create private proposals. Owner lookup is admin-only; published project owners still require active verified access, independently of the relaxed assignment discovery requirement. Added a Create a project action to Administration.
+- New migrations: `20261023000600_project_board.sql` and `20261023000700_admin_project_creation.sql`. Generated `supabase/update-projects.sql` includes these plus the prior assignment-search correction for existing October 23 installations. Fresh setup and the full upgrade include all changes. Reset-account safeguards now preserve task creator/updater/assignee attribution.
+
+Executed: **38 unit tests, TypeScript, ESLint, Next.js production build, Cloudflare/OpenNext build, JavaScript syntax checks, compiled application/confirmation smoke checks, and `git diff --check` passed**. The compiled tests use mocked HTTP and cover native/external/completed board rendering, self as default owner, explicit admin owner selection, rejection of 301-character creation before any provider mutation, and employee forms ignoring injected owner fields. The first extended smoke run encountered an unhandled-in-the-mock Next internal redirect fetch; its safe redirect fallback completed, then the harness was corrected to mock that request explicitly and the rerun passed without those errors. No actual external HTTP request was sent by these checks.
+
+Not executed successfully: all three hosted suites stopped at setup because `.env.test` is absent, with zero real cases run. Added a hosted suite for publication authorization/atomicity, description boundaries, direct-write denials, private-board isolation, task CRUD/assignments/positions, cross-project IDs, mode preservation, removed/revoked users, and completion locks. Added browser coverage for default owner, publishing, weekly hours, description limits, task persistence/movement, mobile overflow, and switching away/back.
+
+Browser execution was blocked before tests: local web-server binding failed with `listen EPERM 127.0.0.1:3000`. An independent offline Chromium launch also failed because the Playwright browser executable is not installed. No actual screenshot, visual, drag, responsive, or keyboard inspection is claimed. Hosted SQL execution, real role-separated acceptance, visual checks, and production rollout remain required; see [UPDATE_SETUP.md](UPDATE_SETUP.md).
+
+---
+
 # Assignment search correction — October 23, 2026
 
 Source inspection found that assignment discovery required `email_confirmed_at`, excluded all hidden profiles (including for administrators), and silently filtered existing participants and pending invitees from the page. Search also did not match email addresses. These are confirmed code paths, not a verified diagnosis of the hosted records.

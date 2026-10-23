@@ -2,7 +2,7 @@
 
 Find work worth doing. A single-workspace opportunity marketplace built around **propose → approve → join → contribute → owner verification**.
 
-This repository implements the verified contribution loop plus catalog skills, owner/admin project controls, resource links, consent-based invitations, and deterministic matching. Task boards and native external-tool integration remain deferred. Initials replace uploaded avatars. Learning currently filters projects by desired skills; there is no curated resource directory or AI service.
+This repository implements the verified contribution loop plus catalog skills, owner/admin project controls, resource links, consent-based invitations, deterministic matching, and a native Kanban board. Owners/admins can switch to an external board link while preserving native tasks. Admins can create and publish a project with an assigned owner in one step. Initials replace uploaded avatars. Learning currently filters projects by desired skills; there is no curated resource directory or AI service.
 
 The IBM-named demo uses fictional people, synthetic projects, and clearly marked illustrative evidence. It is independently built and does not imply IBM endorsement. Real employee/project use requires appropriate authorization.
 
@@ -10,7 +10,7 @@ The IBM-named demo uses fictional people, synthetic projects, and clearly marked
 
 Follow [the October 23 update walkthrough](docs/UPDATE_SETUP.md): apply the ordered additive SQL before deploying the new UI. The new migrations and hosted workflows have not been executed in this environment.
 
-Already ran the October 23 upgrade but assignment search is empty? Apply [fix-assignment-search.sql](supabase/fix-assignment-search.sql), then redeploy. Admin assignment search includes hidden and unconfirmed active accounts; existing participants and pending invitees remain visible with status labels. `npm run assignments:inspect` checks the underlying account/access counts without changing anything.
+Already ran the original October 23 upgrade? Apply [update-projects.sql](supabase/update-projects.sql), then redeploy. This includes native boards, direct admin publication, and the assignment-search fix. Admin assignment search includes hidden and unconfirmed active accounts; existing participants and pending invitees remain visible with status labels. `npm run assignments:inspect` checks the underlying account/access counts without changing anything.
 
 ## First time here?
 

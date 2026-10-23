@@ -54,7 +54,8 @@ test("a contribution goes from proposal to owner-verified profile credit", async
     await expect(ownerPage.getByText("Sent for approval.",{exact:false})).toBeVisible();
     await adminPage.goto("/admin");
     const approval = adminPage.locator(".approval-card").filter({has:adminPage.getByRole("heading",{name:title,exact:true})});
-    await approval.getByLabel(`Official owner for ${title}`,{exact:true}).selectOption(owner.id);
+    await approval.getByRole("combobox",{name:`Project owner for ${title}`,exact:true}).fill(owner.name);
+    await approval.getByRole("option",{name:owner.name,exact:true}).click();
     await approval.getByRole("button",{name:"Assign owner",exact:true}).click();
     await expect(approval.getByText("Official owner assigned.",{exact:true})).toBeVisible();
     await approval.getByRole("button",{name:"Approve publication",exact:true}).click();

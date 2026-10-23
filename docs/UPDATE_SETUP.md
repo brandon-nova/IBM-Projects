@@ -1,62 +1,51 @@
 # Update your IBM site
 
-There are two updates: **Supabase gets the new tables and permissions; Cloudflare gets the new app.** Saving files does not update the live site.
+For your existing installation, update Supabase first, then publish the app. Keep your environment files and email settings.
 
-Keep your existing environment files, SMTP settings, and email templates. No Docker is needed.
+## 1. Install the project update
 
-## Already upgraded? Fix assignment search
+Back up the database first and test the SQL on a separate Supabase Cloud test project before production.
 
-If you already saw **IBM update complete**, use only this small correction:
-
-1. Open [fix-assignment-search.sql](../supabase/fix-assignment-search.sql). Press **Cmd+A**, then **Cmd+C**.
-2. Open [your Supabase SQL Editor](https://supabase.com/dashboard/project/hatvbfuznerrprpuccpj/sql/new), paste, and click **Run**.
-3. Wait for **Assignment search updated**. Then publish using step 3 below.
-
-Do not rerun the full upgrade. The correction can be rerun safely. It allows active accounts to appear before email verification and lets admins find hidden profiles in assignment controls. Ordinary People search still respects hiding. Existing participants and pending invitees stay visible with status labels after the app is deployed. Revoked accounts stay excluded; sign-in and accepting invitations still require verification.
-
-To investigate account records without changing anything, run `npm run assignments:inspect`. It reports account counts, missing profiles, access bindings, and how the old filters could empty each project's list. It needs the existing server-only service-role key in `.env.local`; it never prints email addresses or credentials.
-
-## 1. Update Supabase
-
-Back up your database first. Test the upgrade on a separate Supabase Cloud test project before using it on the live database.
-
-1. Open [upgrade-20261023.sql](../supabase/upgrade-20261023.sql) in your editor.
-2. Press **Cmd+A**, then **Cmd+C** to copy the entire file.
+1. Open [update-projects.sql](../supabase/update-projects.sql).
+2. Press **Cmd+A**, then **Cmd+C**.
 3. Open [your Supabase SQL Editor](https://supabase.com/dashboard/project/hatvbfuznerrprpuccpj/sql/new).
-4. Paste the file and click **Run**.
-5. Wait for **IBM update complete**.
+4. Paste and click **Run**.
+5. Wait for **Project tools updated**.
 
-This one file contains all five October 23 migrations, including the assignment search correction. Run it once. **Do not run `setup.sql` again or run the individual migrations afterward.**
+Run this once if you already installed the original October 23 upgrade. It includes the assignment-search fix, so it is fine if you already ran that small fix. It preserves accounts, projects, existing descriptions, links, and accepted work. **Do not rerun `setup.sql` or the full upgrade.**
 
-It expects the previous October 22 setup. If it reports an error, stop and use the error message to diagnose it; do not reset the database. If you already ran any October 23 migrations, see [SUPABASE_SETUP.md](SUPABASE_SETUP.md) before proceeding.
+If you have never installed the October 23 upgrade, use the current [upgrade-20261023.sql](../supabase/upgrade-20261023.sql) instead. It includes all seven October 23 migrations and ends with **IBM update complete**; do not run `update-projects.sql` afterward. Fresh, empty databases use [setup.sql](../supabase/setup.sql).
 
-## 2. Try the app on your computer
+If any SQL reports an error, stop and investigate that message; do not reset the database. If you already applied individual board/admin-creation migrations, apply only those still missing.
 
-In the project terminal, run:
+## 2. Try it locally
 
 ```sh
 npm run dev
 ```
 
-Open [localhost:3000](http://localhost:3000). Sign in and check your profile, skill search, project links, and the admin assignment screen. Use separate admin and employee accounts to test invitation acceptance, work submission, and completion.
+Open [localhost:3000](http://localhost:3000).
 
-When finished, press **Ctrl+C** in the terminal.
+- As admin, open **Create a project**. The single **Project owner** field shows your name by default. Type a name and select a result to choose someone else, then **Create and publish project**. It immediately appears in workspace discovery. Employee proposals still need approval. The simplified owner field needs only an app deployment, with no additional SQL.
+- New descriptions have a **300-character counter**. Existing longer descriptions remain readable and editable. Hours are labeled **Estimated hours per week**.
+- Open a project: the **native board is the default**. Add a task, assign it to a participant, edit it, and move it between **To Do**, **In Progress**, and **Done**. Drag between columns, or select a status and press **Move**. Deletion asks for confirmation.
+- As owner/admin, open **Board settings → External board**, add an HTTP/HTTPS URL, then **Save board**. **Open board** opens the external tool. Switch back to **Native board** and confirm every task and its status remain.
+- Authorized workspace users can read published boards. Participants and admins can edit them. Completed projects are read-only. A Done task does not replace contribution acceptance and completion verification.
+- Assignment search includes active accounts before email verification. Admins can find hidden profiles and search by email; existing participants and pending invitees stay visible with status labels. Revoked accounts stay excluded. Sign-in and accepting invitations still require verification.
 
-## 3. Publish to your domain
+For an empty assignment search, run `npm run assignments:inspect`. It reports missing profiles, access bindings, and filter counts without changing data or printing email addresses/credentials. It uses the existing server-only service-role key in `.env.local`.
 
-After the database and app checks pass, run these commands one at a time. Continue only if each succeeds:
+When finished, press **Ctrl+C**.
+
+## 3. Publish
+
+After the database and app checks pass, run these one at a time:
 
 ```sh
 npm run cf:deploy
 npm run cf:verify
 ```
 
-Then open **https://projects.fncai.org** and refresh. Check sign-in, an actual signup email, and the same project workflow on the live site.
+Open **https://projects.fncai.org** and refresh. Test the same workflow using separate admin, owner, and employee accounts. Saving files alone does not update the live site; deployment updates app code and Supabase SQL updates the database separately.
 
-For future code changes, repeat the deploy and verify commands. Only apply SQL when an update includes new migrations.
-
-## What still needs testing
-
-The new database upgrade and deployment have **not** been run for you. Hosted database/security tests and visual/keyboard checks remain pending. A successful build or `cf:verify` does not prove those checks passed.
-
-See [ACCEPTANCE.md](ACCEPTANCE.md) for the checks already executed and remaining blockers, and [DEPLOYMENT.md](DEPLOYMENT.md) for the full release checklist. Automated database tests require a separate disposable Supabase project; do not point them at your live database.
+The new SQL has **not** been applied for you. Hosted database/security and actual visual/keyboard acceptance remain pending. See [ACCEPTANCE.md](ACCEPTANCE.md) for executed checks and blockers, and [DEPLOYMENT.md](DEPLOYMENT.md) for the full release checklist. Automated database tests need a separate disposable Supabase project; never point fixture tests at production.

@@ -4,6 +4,8 @@ Implementation plan prepared October 23, 2026. Based on the current repository, 
 
 Current implementation, executed checks, and remaining dependency/hosted/browser gates are tracked in [UPDATE_SETUP.md](UPDATE_SETUP.md) and [ACCEPTANCE.md](ACCEPTANCE.md).
 
+October 23 follow-up scope: the user requested a native Trello-style board by default, an owner/admin external-board switch that preserves tasks, immediate admin publication with owner assignment, 300-character new descriptions, weekly-hours labels, and tighter project spacing. These requests supersede this plan's original board deferral. Migrations `20261023000600` and `20261023000700` implement those database additions; existing installations use the combined `update-projects.sql`, which also includes the assignment search correction.
+
 **Agreed decisions**
 
 - Keep the IBM name, blue accent, Next.js/TypeScript/Tailwind/shadcn stack, Supabase permissions, and Cloudflare deployment at `projects.fncai.org`.
@@ -12,7 +14,7 @@ Current implementation, executed checks, and remaining dependency/hosted/browser
 - Move **My projects** out of the filter checkbox into a button above **Create a project**. Add **Clear filters** to the filter bar.
 - Use **Projects** everywhere in current interface copy, accessible labels, email copy, and maintained setup documentation. Preserve `/projects` and existing IDs.
 - Preserve the zero-membership search home and the participant three-card home. Add pending suggestions to each.
-- Deliver in working increments. Do not introduce a task board, separate training platform, AI service, or new authentication provider.
+- Deliver in working increments. Keep the requested board to simple tasks and three status columns; do not introduce a separate training platform, AI service, or new authentication provider.
 
 **1. Current implementation and reuse**
 

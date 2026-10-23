@@ -53,6 +53,9 @@ test("hosted Supabase: native boards, external mode, and atomic admin publicatio
       }
       const privateTask=await f.rpc(owner,"save_project_task",{...taskInput,p_project_id:privateProject});
       assert.deepEqual(await f.ok(`/rest/v1/project_tasks?id=eq.${privateTask}`,"GET",undefined,outsider.token),[]);
+      await denied(owner,"move_project_task",{p_project_id:project,p_task_id:privateTask,p_status:"done"});
+      await denied(owner,"save_project_task",{...taskInput,p_task_id:privateTask});
+      await denied(owner,"delete_project_task",{p_project_id:project,p_task_id:privateTask});
       assert((await f.call("/rest/v1/project_tasks","GET")).status>=400);
     });
     await t.test("members create, edit, assign, move and delete cards with persisted positions",async() => {

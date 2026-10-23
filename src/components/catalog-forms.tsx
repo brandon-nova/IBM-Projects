@@ -20,7 +20,7 @@ export function ProjectForm({ project, catalog, owners, defaultOwnerId }: { cata
     <label className="field">Description<textarea className="field-input" name="description" required minLength={10} value={description} onChange={(e) => setDescription(e.target.value)} rows={4} aria-describedby="project-description-count" aria-invalid={count>limit} /><span id="project-description-count" className={count>limit ? "field-error" : "field-hint"}>{count} / {limit}</span></label>
     <SkillPicker disabled={pending} catalog={catalog} name="skills" label="Skills needed" initial={project?.skills} />
     <label className="field">Estimated hours per week <span className="optional">Optional</span><input className="field-input" name="estimated_hours" type="number" min={0.5} max={10000} step={0.5} defaultValue={project?.estimated_hours ?? ""} /></label>
-    {publish && <OwnerPicker id="new-project-owner" title="new project" ownerId={defaultOwnerId ?? null} candidates={owners} />}
+    {publish && <OwnerPicker id="new-project-owner" title="new project" ownerId={defaultOwnerId ?? null} candidates={owners} disabled={pending} />}
     <Button className="self-start" disabled={pending || count>limit}>{pending ? "Saving…" : project ? "Save changes" : publish ? "Create and publish project" : "Create private proposal"}</Button>
   </fieldset>{state.message && <p role={state.success ? "status" : "alert"} className={state.success ? "notice notice-success" : "notice notice-error"}>{state.message}</p>}</form>;
 }
