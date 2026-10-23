@@ -11,13 +11,19 @@ const users = [];
 for (let i=0;i<names.length;i++) users.push(await provision(config, emails[i], names[i], password, { admin: i === 0 }));
 const tokens = [];
 for (const email of emails) tokens.push(await signIn(config,email,password));
-const skills = [
+const profileSkills = [
   ["SQL, Automation", "AI"], ["Python, SQL", "React"], ["Design, Documentation", "Python"],
   ["React, TypeScript", "AI"], ["SQL, Data engineering", "Design"], ["Documentation", "Python, AI"],
 ];
-for (let i=0;i<users.length;i++) await rpc(config,tokens[i],"save_profile",{
+const catalog = await request(config,"/rest/v1/skills?select=id,name",undefined,"GET");
+const skillIds=(names) => names.map((name) => {
+  const skill=catalog.find((s) => s.name===name);
+  if(!skill) throw new Error("Apply the skill catalog migration/seed before demo seeding.");
+  return skill.id;
+});
+for (let i=0;i<users.length;i++) await rpc(config,tokens[i],"save_profile_skills",{
   p_display_name:names[i],p_bio:"Fictional demo teammate. Curious about small projects with useful outcomes.",
-  p_existing_skills:skills[i][0].split(", "),p_learning_skills:skills[i][1].split(", "),p_available_hours:i===5?3:5,
+  p_existing_ids:skillIds(profileSkills[i][0].split(", ")),p_learning_ids:skillIds(profileSkills[i][1].split(", ")),p_available_hours:i===5?3:5,
 });
 
 const fixtures = [
@@ -28,7 +34,7 @@ const fixtures = [
   { id:"55555555-5555-4555-8555-555555555555",title:"Develop a Python Data Validator",creator:1,owner:null,approval:"draft",work:"open",skills:["Python","Data engineering"],description:"Private synthetic draft: validate example CSV files and explain errors in plain language. Start with three useful checks.",hours:5 },
   { id:"66666666-6666-4666-8666-666666666666",title:"Build a Small Web Application",creator:3,owner:3,approval:"approved",work:"completed",skills:["React","TypeScript","Web development"],description:"Completed synthetic example: a small web interface for organizing fictional workshop ideas. Demo evidence is illustrative, not actual IBM work.",hours:8 },
 ];
-const catalog = await request(config,"/rest/v1/skills?select=id,name",undefined,"GET");
+
 for (const f of fixtures) {
   const existing = await request(config,`/rest/v1/projects?id=eq.${f.id}&select=id`,undefined,"GET");
   if (existing.length) continue; // Never overwrite work or accepted evidence on repeat runs.
@@ -49,6 +55,14 @@ for (const f of fixtures) {
     const submission = await rpc(config,tokens[2],"submit_deliverable",{p_project_id:f.id,p_url:"https://example.com/fictional-workshop-demo",p_summary:"Fictional demo evidence: created a sample workshop idea interface and instructions.",p_outcome:"Illustrative outcome only. No real IBM work or measured savings are claimed."});
     await rpc(config,tokens[f.owner],"review_deliverable",{p_deliverable_id:submission,p_accept:true,p_feedback:"Synthetic owner acceptance for demonstration only."});
     await rpc(config,tokens[f.owner],"complete_project",{p_project_id:f.id});
+  }
+}
+// Explicit opt-in avoids reopening a previously declined/canceled demo invitation.
+if(process.env.SEED_DEMO_INVITATIONS==="true") {
+  for(const [pid,recipient,kind] of [[fixtures[0].id,5,"training"],[fixtures[2].id,2,"contribution"]]) {
+    const previous=await request(config,`/rest/v1/project_requests?project_id=eq.${pid}&user_id=eq.${users[recipient].id}&request_type=eq.invitation`,undefined,"GET");
+    const membership=await request(config,`/rest/v1/project_members?project_id=eq.${pid}&user_id=eq.${users[recipient].id}&membership_status=eq.active`,undefined,"GET");
+    if(!previous.length&&!membership.length) await rpc(config,tokens[0],"invite_project_members",{p_project_id:pid,p_user_ids:[users[recipient].id],p_kind:kind,p_reason:"Fictional demo invitation. Accept only if you want to participate.",p_reinvite:false});
   }
 }
 console.log("Synthetic demo seeded: one admin, five employees, six projects. casey@ibm-projects.example has zero project memberships. Existing projects and accepted evidence were preserved.");

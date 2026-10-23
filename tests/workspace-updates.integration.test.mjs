@@ -1,0 +1,140 @@
+import {test} from "node:test";
+import assert from "node:assert/strict";
+import {fixtures} from "./support.ts";
+
+test("hosted Supabase: catalog, admin parity, links, and consent-based assignments",{timeout:180000},async(t) => {
+  const f=await fixtures();
+  try {
+    const admin=await f.actor("updates-admin",true), owner=await f.actor("updates-owner"), employee=await f.actor("updates-employee"), other=await f.actor("updates-other"), outsider=await f.actor("updates-outsider");
+    const denied=async(actor,name,args) => assert.ok((await f.call(`/rest/v1/rpc/${name}`,"POST",args,actor.token)).status>=400,`${name} must reject`);
+    const catalog=await f.ok("/rest/v1/skills?active=eq.true&order=name","GET",undefined,owner.token);
+    assert(catalog.length>=30,"expanded seed is required");
+    const ids=catalog.slice(0,8).map((s) => s.id);
+    const profile={p_display_name:employee.name,p_bio:"Fictional profile",p_existing_ids:[ids[0]],p_learning_ids:ids.slice(0,6),p_available_hours:4};
+    await t.test("catalog-only writes, limits, requests, and retirement",async() => {
+      await f.rpc(employee,"save_profile_skills",profile);
+      await denied(employee,"save_profile_skills",{...profile,p_learning_ids:ids.slice(0,7)});
+      await denied(employee,"save_profile_skills",{...profile,p_bio:"a".repeat(361)});
+      await denied(employee,"save_profile",{p_display_name:employee.name,p_bio:"",p_existing_skills:[`Unapproved ${f.runId}`],p_learning_skills:[],p_available_hours:2});
+      await denied(employee,"save_interest",{p_interest:`Unapproved ${f.runId}`});
+      const name=`Test catalog ${f.runId}`;
+      const request=await f.rpc(employee,"request_skill",{p_name:name,p_reason:"Fictional integration test"});
+      await denied(other,"request_skill",{p_name:`  ${name.toUpperCase()}  `,p_reason:"Duplicate"});
+      assert.deepEqual(await f.ok(`/rest/v1/skill_requests?id=eq.${request}`,"GET",undefined,other.token),[]);
+      await denied(employee,"review_skill_request",{p_request_id:request,p_approve:true,p_feedback:""});
+      const responses=await Promise.all([1,2].map(() => f.call("/rest/v1/rpc/review_skill_request","POST",{p_request_id:request,p_approve:true,p_feedback:""},admin.token)));
+      assert.equal(responses.filter((r) => r.status===200).length,1);
+      const [record]=await f.ok(`/rest/v1/skill_requests?id=eq.${request}`,"GET",undefined,employee.token);
+      f.trackSkill(record.approved_skill_id);
+      assert.equal(record.reviewed_by,admin.id);
+      await f.rpc(employee,"save_profile_skills",{...profile,p_existing_ids:[record.approved_skill_id]});
+      await f.rpc(admin,"set_skill_active",{p_skill_id:record.approved_skill_id,p_active:false});
+      await f.rpc(employee,"save_profile_skills",{...profile,p_existing_ids:[record.approved_skill_id]});
+      await denied(other,"save_profile_skills",{...profile,p_existing_ids:[record.approved_skill_id]});
+      await f.rpc(employee,"save_profile_skills",{...profile,p_existing_ids:[ids[0]],p_learning_ids:ids.slice(0,5)});
+      const additions=await Promise.all(ids.slice(5,7).map((id) => f.call("/rest/v1/rpc/save_learning_interest","POST",{p_skill_id:id},employee.token)));
+      assert.equal(additions.filter((r) => r.status===200).length,1,"concurrent additions cannot exceed six");
+    });
+    const project=await f.rpc(owner,"create_project_with_skills",{p_title:`Assignments ${f.runId}`,p_description:"Synthetic invitation workflow and external links.",p_skill_ids:[ids[0]],p_estimated_hours:6});
+    const invitation={p_project_id:project,p_user_ids:[employee.id],p_kind:"contribution",p_reason:"Useful fictional opportunity",p_reinvite:false};
+    let link;
+    await t.test("admin details and links preserve private visibility and published state",async() => {
+      await denied(outsider,"edit_project_with_skills",{p_project_id:project,p_title:"Unauthorized",p_description:"Unassigned private project stays protected.",p_skill_ids:[ids[0]],p_estimated_hours:2});
+      await f.rpc(admin,"edit_project_with_skills",{p_project_id:project,p_title:`Assignments ${f.runId}`,p_description:"Admin-edited synthetic invitation workflow and links.",p_skill_ids:[ids[0]],p_estimated_hours:6});
+      link=await f.rpc(admin,"save_project_link",{p_project_id:project,p_label:"Fictional board",p_url:"https://example.com/board"});
+      assert.deepEqual(await f.ok(`/rest/v1/project_links?project_id=eq.${project}`,"GET",undefined,employee.token),[]);
+      await denied(owner,"invite_project_members",invitation);
+      await f.rpc(admin,"assign_owner",{p_project_id:project,p_owner_id:owner.id});
+      await f.rpc(owner,"request_publication",{p_project_id:project});
+      await f.rpc(admin,"review_publication",{p_project_id:project,p_approve:true});
+      await f.rpc(admin,"edit_project_with_skills",{p_project_id:project,p_title:`Assignments ${f.runId}`,p_description:"Published project remains published after admin edits.",p_skill_ids:[ids[0]],p_estimated_hours:6});
+      const [p]=await f.ok(`/rest/v1/projects?id=eq.${project}`,"GET",undefined,employee.token);
+      assert.equal(p.visibility,"organization");
+      await denied(employee,"save_project_link",{p_project_id:project,p_label:"Bad actor",p_url:"https://example.com/other"});
+      for(const url of ["javascript:alert(1)","https://user:pass@example.com","https://example.com:99999","https:example.com"]) await denied(admin,"save_project_link",{p_project_id:project,p_label:"Unsafe",p_url:url});
+      await denied(outsider,"invite_project_members",invitation);
+      await denied(outsider,"assignment_candidates",{p_project_id:project});
+    });
+    await t.test("assignment search includes admins and unconfirmed accounts, scopes hidden profiles, and excludes revoked access",async() => {
+      const hidden=await f.actor("hidden-candidate",true),revoked=await f.actor("revoked-candidate"),unconfirmed=await f.actor("unconfirmed-candidate",false,{emailConfirmed:false});
+      await f.rpc(hidden,"set_directory_visibility",{p_hidden:true});
+      await f.rpc(admin,"manage_access",{p_email:revoked.email,p_active:false});
+      const candidates=await f.rpc(owner,"assignment_candidates",{p_project_id:project,p_limit:100});
+      for(const user of [hidden,revoked]) assert(!candidates.some((c) => c.user_id===user.id));
+      for(const user of [admin,unconfirmed,owner]) assert(candidates.some((c) => c.user_id===user.id),"role, confirmation, and existing membership must not hide visible accounts");
+      const adminCandidates=await f.rpc(admin,"assignment_candidates",{p_project_id:project,p_limit:100});
+      assert(adminCandidates.some((c) => c.user_id===hidden.id),"admin assignment controls can find hidden accounts");
+      assert(!adminCandidates.some((c) => c.user_id===revoked.id));
+      assert.deepEqual((await f.rpc(admin,"assignment_candidates",{p_project_id:project,p_query:`  ${hidden.email}  `})).map((c) => c.user_id),[hidden.id]);
+      assert.deepEqual(await f.rpc(owner,"assignment_candidates",{p_project_id:project,p_query:unconfirmed.email}),[],"ordinary owners cannot search private email addresses");
+      assert.deepEqual((await f.rpc(admin,"assignment_candidates",{p_project_id:project,p_limit:1,p_offset:1})).map((c) => c.user_id),[adminCandidates[1].user_id]);
+      const anonymous=await f.call("/rest/v1/rpc/assignment_candidates","POST",{p_project_id:project});
+      assert(anonymous.status>=400);
+      await denied(owner,"invite_project_members",{...invitation,p_user_ids:[revoked.id]});
+      await denied(revoked,"invite_project_members",invitation);
+      await f.rpc(admin,"invite_project_members",{...invitation,p_user_ids:[unconfirmed.id]});
+      const [pending]=await f.ok(`/rest/v1/project_requests?project_id=eq.${project}&user_id=eq.${unconfirmed.id}&request_type=eq.invitation`,"GET",undefined,admin.token);
+      assert.equal(pending.status,"pending");
+      assert.deepEqual(await f.ok(`/rest/v1/project_members?project_id=eq.${project}&user_id=eq.${unconfirmed.id}`,"GET",undefined,admin.token),[]);
+      const login=await f.call("/auth/v1/token?grant_type=password","POST",{email:unconfirmed.email,password:unconfirmed.password});
+      assert(login.status>=400,"being found or invited must not bypass email verification");
+      await denied(admin,"respond_project_invitation",{p_request_id:pending.id,p_accept:true});
+      await f.ok(`/auth/v1/admin/users/${unconfirmed.id}`,"PUT",{email_confirm:true},f.service);
+      const confirmedSession=await f.ok("/auth/v1/token?grant_type=password","POST",{email:unconfirmed.email,password:unconfirmed.password});
+      unconfirmed.token=confirmedSession.access_token;
+      await f.rpc(unconfirmed,"respond_project_invitation",{p_request_id:pending.id,p_accept:true});
+      const membership=await f.ok(`/rest/v1/project_members?project_id=eq.${project}&user_id=eq.${unconfirmed.id}`,"GET",undefined,admin.token);
+      assert.equal(membership.length,1);
+      assert.equal(membership[0].membership_status,"active");
+    });
+    let accepted;
+    await t.test("invites deduplicate and acceptance transactionally resolves a join request",async() => {
+      await f.rpc(admin,"invite_project_members",invitation);
+      await f.rpc(owner,"invite_project_members",{...invitation,p_reason:"Duplicate must not overwrite attribution"});
+      const rows=await f.ok(`/rest/v1/project_requests?project_id=eq.${project}&user_id=eq.${employee.id}&request_type=eq.invitation`,"GET",undefined,employee.token);
+      assert.equal(rows.length,1); accepted=rows[0].id;
+      assert.equal(rows[0].invited_by,admin.id); assert.equal(rows[0].reason,invitation.p_reason);
+      const before=await f.ok(`/rest/v1/project_members?project_id=eq.${project}&user_id=eq.${employee.id}`,"GET",undefined,employee.token);
+      assert.equal(before.length,0,"inviting does not grant membership");
+      await denied(admin,"respond_project_invitation",{p_request_id:accepted,p_accept:true});
+      const join=await f.rpc(employee,"request_join",{p_project_id:project});
+      await Promise.all([1,2].map(() => f.rpc(employee,"respond_project_invitation",{p_request_id:accepted,p_accept:true})));
+      const [resolved]=await f.ok(`/rest/v1/project_requests?id=eq.${join}`,"GET",undefined,employee.token);
+      assert.equal(resolved.status,"canceled"); assert.equal(resolved.reviewed_by,null);
+      const members=await f.ok(`/rest/v1/project_members?project_id=eq.${project}&user_id=eq.${employee.id}`,"GET",undefined,owner.token);
+      assert.equal(members.length,1); assert.equal(members[0].membership_status,"active");
+      await denied(owner,"remove_project_member",{p_project_id:project,p_user_id:owner.id});
+    });
+    await t.test("declines require explicit reinvitation; accept/cancel races remain consistent",async() => {
+      await f.rpc(owner,"invite_project_members",{...invitation,p_user_ids:[other.id],p_kind:"training"});
+      const [r]=await f.ok(`/rest/v1/project_requests?project_id=eq.${project}&user_id=eq.${other.id}&request_type=eq.invitation`,"GET",undefined,other.token);
+      await f.rpc(other,"respond_project_invitation",{p_request_id:r.id,p_accept:false});
+      assert(!((await f.rpc(other,"pending_project_suggestions",{})).includes(r.id)));
+      await denied(owner,"invite_project_members",{...invitation,p_user_ids:[other.id]});
+      await f.rpc(admin,"invite_project_members",{...invitation,p_user_ids:[other.id],p_reinvite:true});
+      await Promise.all([
+        f.call("/rest/v1/rpc/respond_project_invitation","POST",{p_request_id:r.id,p_accept:true},other.token),
+        f.call("/rest/v1/rpc/cancel_project_invitation","POST",{p_request_id:r.id},owner.token),
+      ]);
+      const [final]=await f.ok(`/rest/v1/project_requests?id=eq.${r.id}`,"GET",undefined,other.token);
+      const memberships=await f.ok(`/rest/v1/project_members?project_id=eq.${project}&user_id=eq.${other.id}&membership_status=eq.active`,"GET",undefined,other.token);
+      assert.ok(["accepted","canceled"].includes(final.status)); assert.equal(memberships.length,final.status==="accepted" ? 1 : 0);
+      if(final.status==="accepted") await f.rpc(admin,"remove_project_member",{p_project_id:project,p_user_id:other.id});
+      await f.rpc(admin,"invite_project_members",{...invitation,p_user_ids:[other.id],p_reinvite:true});
+    });
+    await t.test("admin verification preserves actual attribution, closes invitations and locks links",async() => {
+      await denied(admin,"complete_project",{p_project_id:project});
+      const proof=await f.rpc(employee,"submit_deliverable",{p_project_id:project,p_url:"https://example.com/work",p_summary:"Delivered useful synthetic work with instructions.",p_outcome:"Fictional outcome only"});
+      await f.rpc(admin,"review_deliverable",{p_deliverable_id:proof,p_accept:true,p_feedback:"Useful contribution"});
+      await f.rpc(admin,"remove_project_member",{p_project_id:project,p_user_id:employee.id});
+      await f.rpc(admin,"complete_project",{p_project_id:project});
+      const [p]=await f.ok(`/rest/v1/projects?id=eq.${project}`,"GET",undefined,employee.token);
+      const [d]=await f.ok(`/rest/v1/project_deliverables?id=eq.${proof}`,"GET",undefined,employee.token);
+      assert.equal(p.completed_by,admin.id); assert.equal(d.reviewed_by,admin.id); assert.equal(d.status,"accepted");
+      assert.deepEqual(await f.rpc(other,"pending_project_suggestions",{}),[]);
+      await denied(admin,"delete_project_link",{p_link_id:link});
+      await denied(admin,"review_deliverable",{p_deliverable_id:proof,p_accept:false,p_feedback:"Cannot change accepted work"});
+      await denied(owner,"invite_project_members",{...invitation,p_user_ids:[outsider.id]});
+    });
+  } finally {await f.cleanup();}
+});

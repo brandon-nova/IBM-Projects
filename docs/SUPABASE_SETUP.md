@@ -1,3 +1,5 @@
+For an existing IBM database, use [the October 23 upgrade steps](UPDATE_SETUP.md) instead of initial setup.
+
 # Connect the app to Supabase
 
 Your project is already created and its public keys have been added to `.env.local`. Start at step 2 if those values are still there.
@@ -26,7 +28,7 @@ For a project without the app tables, use **one file**:
 
 Expected result: a row saying **Database setup complete**. Open [Table Editor](https://supabase.com/dashboard/project/hatvbfuznerrprpuccpj/editor) to see the tables.
 
-This creates all application tables, permissions, automatic `@ibm.com` signup approval, and starting skills together. You do not need to run the individual SQL files afterward. This file does not create login accounts; continue to step 3 for your administrator.
+This creates all application tables, permissions, automatic IBM root/subdomain signup approval, and starting skills together. You do not need to run the individual SQL files afterward. This file does not create login accounts; continue to step 3 for your administrator.
 
 The combined setup is for an app database that has not been set up yet. It stops if app objects already exist and does not reset or delete your data. If the app tables already exist and only IBM signup needs enabling, run [the IBM signup SQL](../supabase/migrations/20261022000200_ibm_signup.sql) instead. An error saying `type "public.approved_emails" does not exist` means the IBM signup file was run before the core database was created.
 

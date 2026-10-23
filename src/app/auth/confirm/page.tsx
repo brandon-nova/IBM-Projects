@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Brand, Footer } from "@/components/shell";
+import { Footer } from "@/components/shell";
+import { PublicHeader } from "@/components/public-header";
 import { Button } from "@/components/ui/button";
 import { supabaseConfig } from "@/lib/config";
 import { readEmailConfirmation } from "@/lib/email-confirmation";
@@ -13,7 +14,7 @@ export default async function ConfirmEmail({ searchParams }: { searchParams: Pro
   const recovery = link?.kind === "token" && link.type === "recovery";
   return <div className="auth-page">
     <a href="#main" className="skip-link">Skip to content</a>
-    <header className="auth-header"><Brand /></header>
+    <PublicHeader />
     <main className="auth-card" id="main">
       <p className="eyebrow">Your workspace</p>
       <h1>{!configured ? "Sign-in is coming soon." : !link ? "Let’s get you a new link." : recovery ? "Reset your password." : "Let’s get you signed in."}</h1>

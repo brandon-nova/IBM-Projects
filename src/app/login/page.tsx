@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AuthForm } from "@/components/forms";
-import { Brand, Footer } from "@/components/shell";
+import { Footer } from "@/components/shell";
+import { PublicHeader } from "@/components/public-header";
 import { Button } from "@/components/ui/button";
 import { supabaseConfig } from "@/lib/config";
 
@@ -16,11 +17,11 @@ export default async function Login({ searchParams }: { searchParams: Promise<Re
   const params = await searchParams;
   const mode = params.mode === "signup" ? "signup" : params.mode === "reset" ? "reset" : params.mode === "verify" ? "verify" : "login";
   const configured = Boolean(supabaseConfig());
-  if (!configured && process.env.NODE_ENV === "production") return <div className="auth-page"><header className="auth-header"><Brand /></header><main className="auth-card" id="main"><p className="eyebrow">Find work worth doing</p><h1>Good things are taking shape.</h1><p className="muted">We’re getting this workspace ready. Sign-in will be available soon.</p><Button asChild variant="outline"><Link href="/">Back to homepage</Link></Button></main><Footer /></div>;
-  return <div className="auth-page"><header className="auth-header"><Brand /></header><main className="auth-card" id="main">
+  if (!configured && process.env.NODE_ENV === "production") return <div className="auth-page"><PublicHeader /><main className="auth-card" id="main"><p className="eyebrow">Find work worth doing</p><h1>Good things are taking shape.</h1><p className="muted">We’re getting this workspace ready. Sign-in will be available soon.</p><Button asChild variant="outline"><Link href="/">Back to homepage</Link></Button></main><Footer /></div>;
+  return <div className="auth-page"><PublicHeader /><main className="auth-card" id="main">
     <p className="eyebrow">Find work worth doing</p>
     <h1>{mode === "signup" ? "A place for your skills." : mode === "reset" ? "Let’s get you back in." : mode === "verify" ? "Verify your email." : "Welcome back."}</h1>
-    <p className="muted">{mode === "signup" ? "Use your @ibm.com address, or an email approved by an administrator. Verify your email to enter the workspace." : mode === "reset" ? "We’ll email you a link to reset your password." : mode === "verify" ? "Request a new email to finish confirming your account." : "Sign in to find your next opportunity."}</p>
+    <p className="muted">{mode === "signup" ? "Use your IBM email (including subdomains), or an email approved by an administrator. Verify your email to enter the workspace." : mode === "reset" ? "We’ll email you a link to reset your password." : mode === "verify" ? "Request a new email to finish confirming your account." : "Sign in to find your next opportunity."}</p>
     {typeof params.notice === "string" && notices[params.notice] && <p role={params.notice === "password" ? "status" : "alert"} className={`notice ${params.notice === "password" ? "notice-success" : "notice-error"} mb-5`}>{notices[params.notice]}</p>}
     {configured ? <AuthForm mode={mode} /> : <div className="panel stack-sm"><h2>One quick setup first.</h2><p className="muted">Open <code>.env.local</code> in your project folder and add your Supabase URL and publishable key. Restart the app, then sign in.</p><p className="field-hint">The complete walkthrough is in <code>docs/SUPABASE_SETUP.md</code>, including database setup and your first admin account.</p></div>}
     {configured && mode === "verify" && <p className="field-hint verification-help">Resend works for an existing, unconfirmed account. <Link className="text-link" href="/login?mode=signup">Create an account</Link> first if you haven’t signed up. Already verified? <Link className="text-link" href="/login">Sign in</Link>.</p>}

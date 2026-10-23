@@ -31,7 +31,11 @@ async function main() {
   const relationships = [
     ["projects", `or=(creator_id.eq.${uid},owner_id.eq.${uid},completed_by.eq.${uid})`],
     ["project_members", `user_id=eq.${uid}`],
-    ["project_requests", `or=(user_id.eq.${uid},reviewed_by.eq.${uid})`],
+    ["project_requests", `or=(user_id.eq.${uid},reviewed_by.eq.${uid},invited_by.eq.${uid},canceled_by.eq.${uid})`],
+    ["project_links", `or=(created_by.eq.${uid},updated_by.eq.${uid})`],
+    ["project_tasks", `or=(assignee_id.eq.${uid},created_by.eq.${uid},updated_by.eq.${uid})`],
+    ["skill_requests", `or=(requester_id.eq.${uid},reviewed_by.eq.${uid})`],
+    ["project_request_events", `actor_id=eq.${uid}`],
     ["project_deliverables", `or=(contributor_id.eq.${uid},reviewed_by.eq.${uid})`],
   ];
   const linked = await Promise.all(relationships.map(async ([table, filter]) => {

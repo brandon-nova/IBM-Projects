@@ -45,6 +45,10 @@ test("real Supabase: access, RLS, ownership, contribution verification, and comp
       await f.rpc(admin,"manage_access",{p_email:employee.email,p_active:false});
       assert.equal(await f.rpc(employee,"workspace_active",{}),false,"domain approval cannot override a revoked session");
 
+      for (const domain of ["dept.ibm.com","research.eu.ibm.com"]) {
+        const subdomain = await f.actor(`subdomain-${domain}`,false,{email:`test-${f.runId}@${domain}`,preapprove:false});
+        assert.equal(await f.rpc(subdomain,"workspace_active",{}),true);
+      }
       const blockedEmail = `revoked-${f.runId}@ibm.com`;
       await f.rpc(admin,"manage_access",{p_email:blockedEmail,p_active:false});
       try {
@@ -56,7 +60,7 @@ test("real Supabase: access, RLS, ownership, contribution verification, and comp
       } finally {
         await f.ok(`/rest/v1/approved_emails?email=eq.${encodeURIComponent(blockedEmail)}`,"DELETE",undefined,f.service);
       }
-      for (const domain of ["ibm.com.example","dept.ibm.com","notibm.example"]) {
+      for (const domain of ["ibm.com.example","notibm.com","notibm.example","bad..ibm.com","-bad.ibm.com"]) {
         const rejected = await f.call("/auth/v1/admin/users","POST",{email:`test-${f.runId}@${domain}`,password:employee.password,email_confirm:true},f.service);
         if (rejected.data?.id) {
           await f.ok(`/auth/v1/admin/users/${rejected.data.id}`,"DELETE",undefined,f.service);
@@ -155,13 +159,12 @@ test("real Supabase: access, RLS, ownership, contribution verification, and comp
       assert.equal(edited[0].approval_status,"approved");
     });
     const join = await f.rpc(contributor,"request_join",{p_project_id:project});
-    await t.test("join requests are unique and only owners accept them", async () => {
+    await t.test("join requests are unique and owners or admins accept them", async () => {
       assert.equal(await f.rpc(contributor,"request_join",{p_project_id:project}),join);
       const before = await f.ok(`/rest/v1/project_members?project_id=eq.${project}&user_id=eq.${contributor.id}`,"GET",undefined,contributor.token);
       assert.equal(before.length,0);
-      await denied(admin,"review_join",{p_request_id:join,p_accept:true});
       await denied(outsider,"review_join",{p_request_id:join,p_accept:true});
-      await f.rpc(owner,"review_join",{p_request_id:join,p_accept:true});
+      await f.rpc(admin,"review_join",{p_request_id:join,p_accept:true});
       const members = await f.ok(`/rest/v1/project_members?project_id=eq.${project}&user_id=eq.${contributor.id}`,"GET",undefined,contributor.token);
       assert.equal(members.length,1);
       await denied(owner,"review_join",{p_request_id:join,p_accept:true});
@@ -175,13 +178,13 @@ test("real Supabase: access, RLS, ownership, contribution verification, and comp
       }
       submission = await f.rpc(contributor,"submit_deliverable",{p_project_id:project,p_url:"https://example.com/test-work",p_summary:"Implemented a useful fictional reporting script.",p_outcome:"Synthetic result; no measured savings claimed."});
       await denied(contributor,"review_deliverable",{p_deliverable_id:submission,p_accept:true,p_feedback:""});
-      await denied(admin,"review_deliverable",{p_deliverable_id:submission,p_accept:true,p_feedback:""});
+      await denied(outsider,"review_deliverable",{p_deliverable_id:submission,p_accept:true,p_feedback:""});
       await f.rpc(owner,"review_deliverable",{p_deliverable_id:submission,p_accept:false,p_feedback:"Add clear instructions."});
       const updated = await f.rpc(contributor,"submit_deliverable",{p_project_id:project,p_url:"https://example.com/test-work",p_summary:"Implemented the script and added clear instructions.",p_outcome:"Synthetic useful result."});
       assert.equal(updated,submission,"one submission per contributor");
       const [edit,review] = await Promise.all([
         f.call("/rest/v1/rpc/submit_deliverable","POST",{p_project_id:project,p_url:"https://example.com/test-work",p_summary:"Implemented the script, instructions, and a final example.",p_outcome:"Synthetic useful result."},contributor.token),
-        f.call("/rest/v1/rpc/review_deliverable","POST",{p_deliverable_id:submission,p_accept:true,p_feedback:"Useful work, confirmed."},owner.token),
+        f.call("/rest/v1/rpc/review_deliverable","POST",{p_deliverable_id:submission,p_accept:true,p_feedback:"Useful work, confirmed."},admin.token),
       ]);
       assert.equal(review.status,200,"owner acceptance must commit despite a concurrent author edit");
       if (edit.status !== 200) {
@@ -190,7 +193,7 @@ test("real Supabase: access, RLS, ownership, contribution verification, and comp
       }
       const before = await f.ok(`/rest/v1/project_deliverables?id=eq.${submission}`,"GET",undefined,contributor.token);
       assert.equal(before[0].status,"accepted");
-      assert.equal(before[0].reviewed_by,owner.id);
+      assert.equal(before[0].reviewed_by,admin.id);
       assert.equal(before[0].summary,edit.status === 200 ? "Implemented the script, instructions, and a final example." : "Implemented the script and added clear instructions.");
       await denied(contributor,"submit_deliverable",{p_project_id:project,p_url:"https://example.com/changed",p_summary:"Accepted submissions must be immutable.",p_outcome:""});
       await denied(owner,"review_deliverable",{p_deliverable_id:submission,p_accept:false,p_feedback:"Attempt to overwrite acceptance."});
@@ -200,17 +203,17 @@ test("real Supabase: access, RLS, ownership, contribution verification, and comp
     await t.test("ownership reassignment preserves accepted attribution and former membership", async () => {
       await f.rpc(admin,"assign_owner",{p_project_id:project,p_owner_id:outsider.id});
       const result = await f.ok(`/rest/v1/project_deliverables?id=eq.${submission}`,"GET",undefined,outsider.token);
-      assert.equal(result[0].reviewed_by,owner.id);
+      assert.equal(result[0].reviewed_by,admin.id);
       const members = await f.ok(`/rest/v1/project_members?project_id=eq.${project}&user_id=eq.${owner.id}`,"GET",undefined,outsider.token);
       assert.equal(members[0].membership_status,"active");
       await denied(owner,"complete_project",{p_project_id:project});
-      await f.rpc(outsider,"complete_project",{p_project_id:project});
+      await f.rpc(admin,"complete_project",{p_project_id:project});
     });
     await t.test("completion credits accepted contributors and closes participation and submissions", async () => {
       const [p] = await f.ok(`/rest/v1/projects?id=eq.${project}`,"GET",undefined,contributor.token);
       const d = await f.ok(`/rest/v1/project_deliverables?project_id=eq.${project}&status=eq.accepted`,"GET",undefined,contributor.token);
       assert.equal(p.work_status,"completed");
-      assert.equal(p.completed_by,outsider.id);
+      assert.equal(p.completed_by,admin.id);
       assert.deepEqual(d.map((v)=>v.contributor_id),[contributor.id]);
       await denied(admin,"request_join",{p_project_id:project});
       await denied(owner,"submit_deliverable",{p_project_id:project,p_url:"https://example.com/late",p_summary:"No submissions after completion.",p_outcome:""});

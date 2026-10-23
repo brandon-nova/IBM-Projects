@@ -8,8 +8,8 @@ import { ArrowRight, LoaderCircle, Search } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { initialState, type FormAction } from "@/lib/action-state";
-import { loginSchema, signupSchema, resetRequestSchema, passwordSchema, projectSchema, profileSchema, deliverableSchema } from "@/lib/validation";
-import { login, signup, resendVerification, requestPasswordReset, updatePassword, createProject, editProject, saveProfile, setDirectoryVisibility, submitDeliverable, searchInterest } from "@/app/actions";
+import { loginSchema, signupSchema, resetRequestSchema, passwordSchema, deliverableSchema } from "@/lib/validation";
+import { login, signup, resendVerification, requestPasswordReset, updatePassword, setDirectoryVisibility, submitDeliverable, searchInterest } from "@/app/actions";
 
 type Field<T extends FieldValues> = { name: Path<T>; label: string; type?: string; placeholder?: string; hint?: string; required?: boolean; autoComplete?: string; maxLength?: number };
 function FieldsForm<T extends FieldValues>({ schema, defaults, fields, action, label, pendingLabel = "Saving…", hidden = {} }: {
@@ -48,7 +48,7 @@ function FieldsForm<T extends FieldValues>({ schema, defaults, fields, action, l
 export function AuthForm({ mode }: { mode: "login" | "signup" | "verify" | "reset" | "password" }) {
   if (mode === "signup") return <FieldsForm schema={signupSchema} defaults={{ display_name: "", email: "", password: "", confirm_password: "" }} action={signup} label="Create account" pendingLabel="Creating account…" fields={[
     { name: "display_name", label: "Your name", required: true, autoComplete: "name", maxLength: 80 },
-    { name: "email", label: "Work email", type: "email", required: true, autoComplete: "email", hint: "@ibm.com addresses are approved automatically. Other addresses need administrator approval." },
+    { name: "email", label: "Work email", type: "email", required: true, autoComplete: "email", hint: "ibm.com and IBM subdomain addresses are approved automatically. Other addresses need administrator approval." },
     { name: "password", label: "Password", type: "password", required: true, autoComplete: "new-password", hint: "At least 12 characters.", maxLength: 128 },
     { name: "confirm_password", label: "Confirm password", type: "password", required: true, autoComplete: "new-password", maxLength: 128 },
   ]} />;
@@ -63,23 +63,7 @@ export function AuthForm({ mode }: { mode: "login" | "signup" | "verify" | "rese
     { name: "password", label: "Password", type: "password", required: true, autoComplete: "current-password" },
   ]} />;
 }
-export function ProjectForm({ project }: { project?: { id: string; title: string; description: string; skills: string; estimated_hours: number | null } }) {
-  return <FieldsForm schema={projectSchema} defaults={{ title: project?.title ?? "", description: project?.description ?? "", skills: project?.skills ?? "", estimated_hours: project?.estimated_hours?.toString() ?? "" }} action={project ? editProject : createProject} hidden={project ? { project_id: project.id } : {}} label={project ? "Save changes" : "Create private proposal"} fields={[
-    { name: "title", label: "Project title", placeholder: "What could we make better?", required: true, maxLength: 100 },
-    { name: "description", label: "What needs to be done?", type: "textarea", placeholder: "Describe the opportunity and what a useful result would look like.", required: true, maxLength: 5000 },
-    { name: "skills", label: "Skills involved", placeholder: "Python, SQL, Design", hint: "Separate skills with commas. You don’t need to be an expert.", required: true },
-    { name: "estimated_hours", label: "Estimated hours", type: "number", placeholder: "8" },
-  ]} />;
-}
-export function ProfileForm({ defaults }: { defaults: z.infer<typeof profileSchema> }) {
-  return <FieldsForm schema={profileSchema} defaults={defaults} action={saveProfile} label="Save profile" fields={[
-    { name: "display_name", label: "Name", required: true, autoComplete: "name", maxLength: 80 },
-    { name: "bio", label: "A little about you", type: "textarea", maxLength: 500 },
-    { name: "existing_skills", label: "Skills you have", hint: "Separate skills with commas." },
-    { name: "learning_skills", label: "Skills you want to learn", hint: "Separate interests with commas." },
-    { name: "available_hours", label: "Available hours per week", type: "number" },
-  ]} />;
-}
+export { ProjectForm, ProfileForm } from "./catalog-forms";
 export function DeliverableForm({ projectId, defaults }: { projectId: string; defaults?: { url: string; summary: string; outcome: string } }) {
   return <FieldsForm schema={deliverableSchema} defaults={defaults ?? { url: "", summary: "", outcome: "" }} action={submitDeliverable} label={defaults ? "Resubmit work" : "Submit work"} hidden={{ project_id: projectId }} fields={[
     { name: "url", label: "Deliverable URL", type: "url", placeholder: "https://…", hint: "Link to the work. Make sure your owner can access it.", required: true, maxLength: 2048 },
@@ -91,7 +75,7 @@ export function DirectoryVisibilityForm({ hidden }: { hidden: boolean }) {
   const inputId = useId();
   return <section className="panel mt-6" aria-labelledby={`${inputId}-title`}>
     <h2 id={`${inputId}-title`} className="font-semibold">People visibility</h2>
-    <p id={`${inputId}-help`} className="muted text-sm mt-2 mb-4">Hide your profile from People search. Your profile link, project work, and administrator access stay available.</p>
+    <p id={`${inputId}-help`} className="muted text-sm mt-2 mb-4">Hide your profile from People search. Admins can still find you when assigning projects. Your profile link, project work, and administrator access stay available.</p>
     <ActionForm action={setDirectoryVisibility} label="Save visibility">
       <label htmlFor={inputId} className="sr-only">People visibility</label>
       <select key={String(hidden)} id={inputId} name="hidden_from_people" defaultValue={String(hidden)} className="field-input" aria-describedby={`${inputId}-help`}>
@@ -116,7 +100,7 @@ export function InterestSearch() {
       <Search size={21} aria-hidden="true" />
       <label htmlFor="interest" className="sr-only">A skill or interest</label>
       <input id="interest" name="interest" placeholder="AI, Python, design, data engineering…" required maxLength={80} disabled={pending} />
-      <Button type="submit" disabled={pending} aria-label="Find challenges">{pending ? <LoaderCircle className="animate-spin" size={18} aria-hidden="true" /> : <ArrowRight size={18} aria-hidden="true" />}</Button>
+      <Button type="submit" disabled={pending} aria-label="Find projects">{pending ? <LoaderCircle className="animate-spin" size={18} aria-hidden="true" /> : <ArrowRight size={18} aria-hidden="true" />}</Button>
     </form>
     {state.message && <p role="alert" className="field-error mt-3">{state.message}</p>}
   </div>;

@@ -2,9 +2,15 @@
 
 Find work worth doing. A single-workspace opportunity marketplace built around **propose → approve → join → contribute → owner verification**.
 
-This repository implements the Phase 1 application. Task boards, external workspace modes, invitations, and suggested matching are deliberately gated behind a passing core acceptance test. Initials replace uploaded avatars. Learning currently filters projects by desired skills; there is no curated resource directory or AI service.
+This repository implements the verified contribution loop plus catalog skills, owner/admin project controls, resource links, consent-based invitations, and deterministic matching. Task boards and native external-tool integration remain deferred. Initials replace uploaded avatars. Learning currently filters projects by desired skills; there is no curated resource directory or AI service.
 
 The IBM-named demo uses fictional people, synthetic projects, and clearly marked illustrative evidence. It is independently built and does not imply IBM endorsement. Real employee/project use requires appropriate authorization.
+
+## Update an existing installation
+
+Follow [the October 23 update walkthrough](docs/UPDATE_SETUP.md): apply the ordered additive SQL before deploying the new UI. The new migrations and hosted workflows have not been executed in this environment.
+
+Already ran the October 23 upgrade but assignment search is empty? Apply [fix-assignment-search.sql](supabase/fix-assignment-search.sql), then redeploy. Admin assignment search includes hidden and unconfirmed active accounts; existing participants and pending invitees remain visible with status labels. `npm run assignments:inspect` checks the underlying account/access counts without changing anything.
 
 ## First time here?
 
@@ -34,7 +40,7 @@ npm run cf:verify
 
 `fncai.org` must be an active zone in the same Cloudflare account. The Worker configuration binds only `projects.fncai.org`; Cloudflare provisions that hostname's DNS and HTTPS. `.env.local` is for local development, while `.env.production` supplies the three public deployment values and overrides local settings during Cloudflare builds. Keep provisioning credentials out of the production file.
 
-For the requested **homepage-first launch**, this checkout's `.env.production` has `CLOUDFLARE_PUBLIC_PREVIEW=true` with both Supabase fields empty. This publishes the IBM landing and a sign-in availability notice. Supabase authentication and project workflows can be enabled in a later deployment after setup and acceptance.
+For a **homepage-first launch**, use `CLOUDFLARE_PUBLIC_PREVIEW=true` with both production Supabase fields empty. For the authenticated app, retain configured public Supabase values and disable that preview flag after setup. Existing working settings should be preserved.
 
 Cloudflare adapter dependencies are included in the manifest and lockfile. The supplied terminal log confirms a successful OpenNext build and Worker deployment to `projects.fncai.org`. Live verification then failed at DNS lookup (`ENOTFOUND`), so HTTPS and application checks remain unverified. See the [DNS troubleshooting steps](docs/DEPLOYMENT.md#dns-lookup-fails-after-a-successful-deploy). The adapter configuration is separate from the Next.js application type check and is validated by the Cloudflare build.
 
@@ -42,7 +48,7 @@ Cloudflare adapter dependencies are included in the manifest and lockfile. The s
 
 **Optional admin visibility:** Open your own profile → **Edit profile → People visibility** to hide or show yourself in People search. Accounts start visible. Hiding preserves profile links, project attribution, and access; it is not a private or anonymous account. Only active admins can change their own preference. Demoting an admin restores directory visibility.
 
-For an existing database, paste [the admin visibility migration](supabase/migrations/20261022000400_admin_directory_visibility.sql) into **Supabase → SQL Editor → New query → Run**, then deploy the app with `npm run cf:deploy`. Do not rerun `setup.sql` on an existing database.
+For an existing database, follow [the ordered upgrade steps](docs/UPDATE_SETUP.md). The October 23 upgrade requires all four October 22 migrations, including admin visibility. Do not rerun `setup.sql` on an existing database.
 
 1. Install Node 24 and run `npm ci` using the provided `package-lock.json`.
 2. If `.env.local` does not exist yet, copy `.env.example` to `.env.local`. Keep any values you have already configured.
@@ -76,28 +82,28 @@ Seeding is repeatable and preserves existing projects and accepted evidence. It 
 
 For an empty deployment, set `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_NAME`, and a unique `BOOTSTRAP_ADMIN_PASSWORD`, then run `npm run bootstrap` from a trusted terminal with that environment’s service-role key. This inserts the approved email, creates an email-confirmed account, and assigns the admin role. Existing passwords are preserved. Existing confirmed accounts also receive missing profile, role, availability, and access-binding records transactionally. Apply [the account-repair migration](supabase/migrations/20261022000300_repair_account_records.sql) first on databases installed before this update. Explicit revocations and conflicting account bindings stop repair. Remove provisioning secrets from your working environment when finished; the deployed app does not need the service-role key.
 
-After the IBM signup migration is applied, new accounts with an exact `@ibm.com` address are approved automatically as members; mailbox verification is still required. Admins approve other addresses using **Admin → Manage workspace access**. Explicit revocation overrides domain approval, including for existing sessions and later signup attempts. Email changes are unsupported in V1 so approved accounts cannot transfer to other addresses through the Auth API. See [email setup and troubleshooting](docs/EMAIL_SETUP.md) for the migration and professional confirmation/recovery templates.
+After the IBM signup migration is applied, new accounts at `ibm.com` or valid nested subdomains are approved automatically as members; mailbox verification is still required. Admins approve other addresses using **Admin → Access**. Explicit revocation overrides domain approval, including for existing sessions and later signup attempts. Email changes are unsupported in V1 so approved accounts cannot transfer to other addresses through the Auth API. See [email setup and troubleshooting](docs/EMAIL_SETUP.md) for the migration and professional confirmation/recovery templates.
 
 ## Core workflow
 
 1. A member creates a private proposal and requests publication. The proposer immediately participates, without becoming the official owner.
 2. An admin assigns an owner and approves publication. Assignment adds the owner as a participant.
 3. Another member discovers the published opportunity and requests to join.
-4. The owner accepts the request; membership is created atomically.
-5. The contributor submits a deliverable link, summary, and optional outcome. The owner accepts useful work or requests specific changes.
-6. After at least one accepted submission, the owner completes the project. Only accepted contributors receive verified completed-project credit.
+4. The owner or an admin accepts the request; membership is created atomically.
+5. The contributor submits a deliverable link, summary, and optional outcome. The owner or an admin accepts useful work or requests specific changes.
+6. After at least one accepted submission, the owner or an admin completes the project. Only accepted contributors receive verified completed-project credit.
 
 Approved projects remain published after owner edits. Ownership changes preserve former participation and accepted reviewer attribution. Completed projects and accepted submissions are immutable through application operations. Private work is filtered from profiles according to viewer permissions.
 
 ## Security model
 
 - The database guards `auth.users` insertion, not just the signup form. Approved access is bound to an Auth user ID.
-- Exact `@ibm.com` signup creates an approval entry without reactivating revoked entries. It grants no admin role, and workspace access requires verified email ownership.
+- `ibm.com` and valid nested-subdomain signup create an approval entry without reactivating revoked entries. It grants no admin role, and workspace access requires verified email ownership.
 - Every protected request and every database mutation checks active access. Revoking access immediately blocks queries/RPCs made with an existing JWT.
 - All application tables use RLS. Application roles have read access through policies and no direct table mutation grants.
 - Mutations use narrowly granted, actor-checked security-definer functions with an empty search path and qualified references. Internal helpers are not executable by application roles.
 - Ownership/publication, joining, review, and completion serialize on project rows. Submission review cannot race an edit into overwriting accepted evidence.
-- Admins have private-project oversight but do not gain owner-only review or completion rights.
+- Admins can edit projects, links and teams, review useful work, and complete projects. Actual reviewer/completer attribution is preserved; accepted evidence and completion prerequisites remain enforced.
 - Profiles cannot change roles. The last active administrator cannot be demoted or revoked.
 - Requests use user-scoped SSR clients; no authenticated data is cached globally. Privileged keys are confined to provisioning scripts/tests.
 
@@ -108,6 +114,8 @@ npm test
 npm run typecheck
 npm run lint
 npm run build
+npm run cf:build
+npm run test:compiled
 ```
 
 To run the browser workflow first, copy `.env.test.example` to `.env.test`, use a **dedicated hosted test project** with the migration/catalog applied, and set `ALLOW_REMOTE_TESTS=true`. Use a unique `TEST_PASSWORD` of 12+ characters. Point the app’s `.env.local` at that same test project. Optional local Supabase also works.
@@ -124,6 +132,8 @@ Integration tests exercise real Auth and PostgREST/RLS. They deliberately fail s
 Browser tests use separate admin, owner, and contributor sessions and check the mobile newcomer home, private URL protection, publication, joining, submission, owner acceptance, completion, and verified profile credit. CI always runs source checks/build. To enable its hosted workflow tests, provide dedicated `TEST_SUPABASE_URL`, `TEST_SUPABASE_KEY`, and `TEST_SUPABASE_SERVICE_ROLE_KEY` repository secrets, and set the repository variable `RUN_HOSTED_CORE_TESTS=true`. No Docker service is required. A skipped hosted test job does not satisfy workflow acceptance.
 
 See [the acceptance record](docs/ACCEPTANCE.md) for checks actually run and [deployment instructions](docs/DEPLOYMENT.md) for cloud setup. The domain has **not** been verified live.
+
+Invitations are consent-based: owner/admin sends → recipient accepts or declines → accepted recipients become participants. My projects and completed-contribution credit continue to use membership and accepted evidence respectively. See [update behavior and remaining gates](docs/UPDATE_SETUP.md).
 
 ## Routes
 

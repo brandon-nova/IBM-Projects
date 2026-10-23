@@ -23,7 +23,7 @@ export function authFailure(operation: Operation, error: unknown): ActionState {
   const reference = crypto.randomUUID().slice(0, 13);
   console.error(JSON.stringify({ event: "auth_failure", operation, reference, code, status }));
   const fallback = operation === "signup"
-    ? "We couldn’t create the account. Use your @ibm.com address or an email approved by an administrator. If you already registered, try signing in or resending verification."
+    ? "We couldn’t create the account. Use your IBM email (including subdomains) or an email approved by an administrator. If you already registered, try signing in or resending verification."
     : "We couldn’t request the email. Try again shortly or contact your administrator.";
   // Supabase's SDK can omit the provider code on 5xx responses.
   const message = messages[code] ?? (status !== undefined && status >= 500 ? messages.unexpected_failure

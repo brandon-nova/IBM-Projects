@@ -5,6 +5,7 @@ import { loadWorkspace, personTags } from "@/lib/data";
 import { hasVerifiedCredit, initials } from "@/lib/domain";
 import { PageTitle } from "@/components/shell";
 import { DirectoryVisibilityForm, ProfileForm } from "@/components/forms";
+import { SkillRequestForm } from "@/components/skill-request-form";
 import { Button } from "@/components/ui/button";
 import { ProjectCard, SkillTags } from "@/components/projects";
 
@@ -18,7 +19,7 @@ export default async function ProfilePage({ params, searchParams }: { params: Pr
   const existing = personTags(data,userId,"existing");
   const learning = personTags(data,userId,"learning");
   const availability = data.availability.find((a) => a.user_id === userId)?.available_hours;
-  if (self && edit === "1") return <div className="max-w-2xl mx-auto"><PageTitle title="Make this yours." description="Tell people what you can help with and what you’d like to learn." action={<Button asChild variant="outline"><Link href={`/people/${userId}`}>View profile</Link></Button>} /><div className="panel"><ProfileForm defaults={{ display_name: person.display_name, bio: person.bio, existing_skills: existing.map((s) => s.name).join(", "), learning_skills: learning.map((s) => s.name).join(", "), available_hours: availability?.toString() ?? "" }} /></div>{data.viewer.role === "admin" && <DirectoryVisibilityForm hidden={person.hidden_from_people} />}</div>;
+  if (self && edit === "1") return <div className="max-w-2xl mx-auto"><PageTitle title="Make this yours." description="Tell people what you can help with and what you’d like to learn." action={<Button asChild variant="outline"><Link href={`/people/${userId}`}>View profile</Link></Button>} /><div className="panel"><ProfileForm catalog={data.skills} defaults={{ display_name: person.display_name, bio: person.bio, existing_skills: existing.map((s) => s.id), learning_skills: learning.map((s) => s.id), available_hours: availability?.toString() ?? "" }} /></div><SkillRequestForm />{data.viewer.role === "admin" && <DirectoryVisibilityForm hidden={person.hidden_from_people} />}</div>;
   const memberships = new Set(data.members.filter((m) => m.user_id === userId && m.membership_status === "active").map((m) => m.project_id));
   const verified = data.projects.filter((p) => hasVerifiedCredit(p.work_status,data.deliverables.find((d) => d.project_id === p.id && d.contributor_id === userId)?.status));
   const joined = data.projects.filter((p) => memberships.has(p.id) && !verified.some((v) => v.id === p.id));

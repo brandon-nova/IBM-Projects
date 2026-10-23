@@ -66,7 +66,7 @@ Without custom SMTP, Supabase's built-in service limits sending to authorized pr
 
 ## Try one signup and follow it through
 
-1. Open [the live signup page](https://projects.fncai.org/login?mode=signup). Use a new exact `@ibm.com` address you can receive mail at, or an administrator-approved address. Fill all fields; passwords need at least 12 characters. Note the time and any on-screen error reference.
+1. Open [the live signup page](https://projects.fncai.org/login?mode=signup). Use a new `ibm.com` or valid IBM-subdomain address you can receive mail at, or an administrator-approved address. Fill all fields; passwords need at least 12 characters. Note the time and any on-screen error reference.
 2. Open [Supabase → Authentication → Users](https://supabase.com/dashboard/project/hatvbfuznerrprpuccpj/auth/users). Search for the address. **Login accounts live here**, separately from Table Editor. Table Editor → `profiles` holds the app profile; `approved_emails` holds access approval. Signup can roll back if the database trigger or email delivery fails, so a failed attempt may leave no row.
 3. If the account exists but is unconfirmed, open [Resend verification](https://projects.fncai.org/login?mode=verify). Request one fresh email. Check spam. If the address already existed before app setup, missing profile rows need investigation; resending does not create a missing profile.
 4. In Resend, open **Emails**, locate the message, and check its delivery status. Accepted by the provider does not guarantee arrival in the inbox. Check bounces, suppression, recipient spelling, and verified sender domain if it is not delivered.

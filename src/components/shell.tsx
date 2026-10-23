@@ -1,9 +1,8 @@
 import Link from "next/link";
-import { ArrowUpRight, LogOut, PanelsTopLeft } from "lucide-react";
+import { ArrowUpRight, PanelsTopLeft } from "lucide-react";
 import { getViewer } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { initials } from "@/lib/domain";
-import { logout } from "@/app/actions";
+import { AccountMenu } from "./account-menu";
 import { Button } from "./ui/button";
 
 export function Brand() {
@@ -18,13 +17,13 @@ export async function WorkspaceShell({ children }: { children: React.ReactNode }
   const client = await createClient();
   const { count, error } = await client.from("project_members").select("*", { count: "exact", head: true }).eq("user_id", viewer.id).eq("membership_status", "active");
   if (error) throw new Error("Could not load your navigation.");
-  const links = count ? [["/", "Home"], ["/projects", "Challenges"], ["/people", "People"], ["/learning", "Learning"], [`/people/${viewer.id}`, "Profile"]] : [["/projects", "Challenges"], ["/people", "People"]];
+  const links = count ? [["/", "Home"], ["/projects", "Projects"], ["/people", "People"], ["/learning", "Learning"]] : [["/projects", "Projects"], ["/people", "People"]];
   return <div className="app-frame">
     <a href="#main" className="skip-link">Skip to content</a>
     <header className="site-header">
       <Brand />
       <nav aria-label="Main navigation">{links.map(([href, text]) => <Link href={href} key={text}>{text}</Link>)}{viewer.role === "admin" && <Link href="/admin">Admin</Link>}</nav>
-      <div className="header-account"><Link className="avatar" href={`/people/${viewer.id}`} aria-label={`Your profile: ${viewer.profile.display_name}`}>{initials(viewer.profile.display_name)}</Link><form action={logout}><Button variant="ghost" size="sm" aria-label="Sign out"><LogOut size={16} /></Button></form></div>
+      <div className="header-account"><AccountMenu id={viewer.id} name={viewer.profile.display_name} /></div>
     </header>
     <main id="main" className="main-content">{children}</main>
     <Footer />

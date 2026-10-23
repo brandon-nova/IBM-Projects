@@ -33,15 +33,18 @@ test("a contribution goes from proposal to owner-verified profile credit", async
     await expect(contributorPage.getByRole("link",{name:admin.name,exact:true})).toBeVisible();
     await contributorPage.goto("/");
     await expect(contributorPage.getByRole("heading",{name:/What do you want to/})).toBeVisible();
-    await expect(contributorPage.getByRole("link",{name:"Browse challenges",exact:true})).toBeVisible();
-    await expect(contributorPage.getByRole("link",{name:"Post a challenge",exact:true})).toBeVisible();
+    await expect(contributorPage.getByRole("link",{name:"Browse projects",exact:true})).toBeVisible();
+    await expect(contributorPage.getByRole("link",{name:"Create a project",exact:true})).toBeVisible();
     expect(await contributorPage.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
     const title = `A useful microproject ${f.runId}`;
     await ownerPage.goto("/projects/new");
     await ownerPage.getByLabel("Project title",{exact:true}).fill(title);
-    await ownerPage.getByLabel("What needs to be done?",{exact:true}).fill("Make a small reporting script and provide clear instructions using synthetic data.");
-    await ownerPage.getByLabel("Skills involved",{exact:true}).fill("Python, SQL");
+    await ownerPage.getByLabel("Description",{exact:true}).fill("Make a small reporting script and provide clear instructions using synthetic data.");
+    await ownerPage.getByRole("combobox",{name:/Skills needed/}).fill("Python");
+    await ownerPage.getByRole("option",{name:"Python",exact:true}).click();
+    await ownerPage.getByRole("combobox",{name:/Skills needed/}).fill("SQL");
+    await ownerPage.getByRole("option",{name:"SQL",exact:true}).click();
     await ownerPage.getByRole("button",{name:"Create private proposal"}).click();
     await expect(ownerPage).toHaveURL(/\/projects\/[0-9a-f-]+$/);
     const projectPath = new URL(ownerPage.url()).pathname;
@@ -86,7 +89,7 @@ test("a contribution goes from proposal to owner-verified profile credit", async
     await ownerPage.goto(`/people/${owner.id}`);
     await expect(ownerPage.getByText("Verified",{exact:true})).toHaveCount(0);
     await contributorPage.goto("/");
-    for (const name of ["Profile","Learning","Challenges"]) await expect(contributorPage.getByRole("heading",{name,exact:true})).toBeVisible();
+    for (const name of ["Profile","Learning","Projects"]) await expect(contributorPage.getByRole("heading",{name,exact:true})).toBeVisible();
   } finally {
     await Promise.all(contexts.map((c)=>c.close()));
     await f.cleanup();

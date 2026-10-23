@@ -1,0 +1,9 @@
+import type { Skill,SkillRequest } from "@/lib/database.types";
+import { reviewSkill,setSkillActive } from "@/app/skill-actions";
+import { ActionForm } from "./forms";
+export function SkillAdmin({ skills,requests }: { skills:Skill[];requests:SkillRequest[] }) {
+  return <div className="stack"><h2>Skill requests</h2>{requests.filter((r) => r.status==="pending").map((r) => <article className="panel stack-sm" key={r.id}><h3>{r.name}</h3>{r.reason && <p className="muted">{r.reason}</p>}<ActionForm action={reviewSkill} label="Approve skill" variant="default"><input type="hidden" name="request_id" value={r.id} /><input type="hidden" name="approve" value="true" /></ActionForm><ActionForm action={reviewSkill} label="Decline skill"><input type="hidden" name="request_id" value={r.id} /><input type="hidden" name="approve" value="false" /><label className="field flex-1">Feedback<input className="field-input" name="feedback" required maxLength={360} /></label></ActionForm></article>)}{!requests.some((r) => r.status==="pending") && <p className="muted">No pending skill requests.</p>}
+    <section className="panel"><h2 className="panel-title">Skill catalog</h2><p className="field-hint mb-4">Retired skills keep their history. People can choose active skills.</p>{skills.map((s) => <div key={s.id} className="access-row"><span>{s.name}{!s.active && <span className="muted"> · Retired</span>}</span><ActionForm action={setSkillActive} label={s.active ? "Retire" : "Restore"}><input type="hidden" name="skill_id" value={s.id} /><input type="hidden" name="active" value={String(!s.active)} /></ActionForm></div>)}</section>
+    <details className="panel"><summary>Reviewed requests</summary>{requests.filter((r) => r.status!=="pending").map((r) => <div key={r.id} className="review-card"><h3>{r.name}</h3><p className="muted">{r.status}{r.feedback ? ` · ${r.feedback}` : ""}</p></div>)}</details>
+  </div>;
+}

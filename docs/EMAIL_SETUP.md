@@ -8,9 +8,9 @@ Use your existing Supabase project. Complete these steps in order. The links bel
 
 If you have not created the app tables yet, open [setup.sql](../supabase/setup.sql) in VS Code and copy **all its contents**. Open [Supabase → SQL Editor → New query](https://supabase.com/dashboard/project/hatvbfuznerrprpuccpj/sql/new), paste it, and click **Run**. The result should say **Database setup complete**. This creates all tables and enables IBM signup together; do not run the individual migrations afterward.
 
-If the app tables already exist, run only [the IBM signup SQL](../supabase/migrations/20261022000200_ibm_signup.sql) there instead. If this says `public.approved_emails` does not exist, use the combined setup above.
+If the app tables already exist, follow [the existing-database upgrade](UPDATE_SETUP.md) and apply only missing migrations. The October 23 access migration extends signup to IBM subdomains. Do not rerun old signup SQL after the newer access migration. If the core tables are absent, use the combined setup above.
 
-New exact `@ibm.com` addresses can then sign up. They still need to verify their email; revoked accounts stay blocked.
+New `ibm.com` and valid nested-subdomain addresses can then sign up. They still need to verify their email; revoked accounts stay blocked.
 
 ## 2. Tell Supabase where the live app is
 

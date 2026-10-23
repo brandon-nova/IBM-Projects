@@ -1,3 +1,52 @@
+# Assignment search correction — October 23, 2026
+
+Source inspection found that assignment discovery required `email_confirmed_at`, excluded all hidden profiles (including for administrators), and silently filtered existing participants and pending invitees from the page. Search also did not match email addresses. These are confirmed code paths, not a verified diagnosis of the hosted records.
+
+- Added incremental migration `20261023000500_assignment_search.sql`. Candidate discovery requires a real profile and active, user-bound workspace approval, without email confirmation. Admin assignment controls can find hidden accounts and search by email without returning email addresses. Ordinary owners still respect hidden-directory preferences and cannot search by email. Anonymous/unauthorized callers and revoked access remain excluded.
+- Invitations can be recorded for unconfirmed active accounts without creating membership. Actor authentication, owner eligibility, recipient-only acceptance, verified sign-in/acceptance, publication prerequisites, revocation, and explicit reinvitation controls remain intact. The `workspace_active` and `account_eligible` helpers are unchanged.
+- Existing participants and pending invitees remain in browse/search results with explicit statuses and no duplicate-selection control. Empty results distinguish missing active accounts, unmatched searches, pages, skill suggestions, and load errors. Updated profile visibility text explains admin assignment visibility.
+- Generated the small, repeatable `supabase/fix-assignment-search.sql` for already-upgraded databases. Fresh setup and the full October 23 upgrade include the correction. Do not rerun the full upgrade over an already-upgraded database.
+- Added read-only `npm run assignments:inspect`: paginates accounts and app records, checks local/production project mismatch, and reports missing profiles/access bindings and filter counts without emails or credentials. Mocked regression reproduces an empty old search with hidden/unconfirmed admins and existing membership, including pagination and GET-only enforcement.
+
+Executed this increment: **35 unit tests, TypeScript, lint, Next.js production build, Cloudflare/OpenNext build, compiled application/confirmation smoke checks, JavaScript syntax checks, and `git diff --check` passed**. Compiled checks use mocked Supabase and verify existing/pending candidates remain visible. These are not database or browser acceptance.
+
+Real hosted integration suites stopped at setup because `.env.test` is absent; zero hosted cases ran. Added hosted cases for admin/unconfirmed discovery, hidden-profile scope, email search, pagination, anonymous/revoked denials, pre-verification invitations, and acceptance only after verification, plus browser assertions for hidden-admin discovery and persistent participant results. They remain unexecuted.
+
+Live read-only diagnosis failed on sandbox DNS (`ENOTFOUND`). Network escalation was not executed: automatic approval review returned **403** because configured model `gpt-5.6-luna` is unavailable. Approval was not bypassed. No live records were inspected successfully, no hosted SQL applied, and no deployment performed. Run the diagnostic locally and apply/test the correction against hosted Supabase before claiming live resolution.
+
+---
+
+# October 23 feature implementation — local evidence
+
+This entry supersedes older feature descriptions below; earlier entries remain historical. Source changes are implemented, but **new migrations, hosted database acceptance, actual visual inspection, and deployment acceptance have not run successfully**. See [UPDATE_SETUP.md](UPDATE_SETUP.md) for ordered rollout and commands.
+
+Implemented: IBM root/valid nested-subdomain signup policy; owner/admin permission parity with actual attribution; catalog UUID pickers and skill requests/approval/retirement; 360-character bios and six learning interests with legacy preservation; project Links; public Sign up; avatar menu, delayed persistent theme toggle and confirmed sign-out; Projects labels and My projects/Clear filters; admin tabs; scoped, searchable two-panel assignment; deterministic contribution/training previews; transactional consent-based invitations/history/cancellation/removal; suggested projects on both homes. Accepted contribution evidence and completion prerequisites remain enforced in the new SQL. The new SQL has been reviewed in source but has **not** been executed against PostgreSQL/Supabase.
+
+Executed against the final local code:
+
+| Check | Result |
+| --- | --- |
+| `npm test` | Passed: 34 tests, zero failures/skips. Includes matching, profile limits, catalog-ID validation, link safety, permission predicates, filter URLs, password/verification regressions, and reset-history safeguards. |
+| `npm run typecheck` | Passed. |
+| `npm run lint` | Passed with zero warnings. |
+| `npm run build` | Passed; repeated as part of the final Cloudflare build. |
+| `npm run cf:build` | Passed; OpenNext generated `.open-next/worker.js`. Existing adapter warnings about Node middleware and compatibility date remain; this is not deployment verification. |
+| `npm run test:compiled` | Passed: compiled public/newcomer/participant homes, pending suggestions, signup forms/error/success, protected redirects, project filters/forms, profile catalog controls, links, admin tabs/assignments. Separate compiled confirmation checks prove mocked session-cookie setting, fixed redirects, same-active-account repeat handling, rejection of unrelated/revoked sessions, and recovery routing. Every provider request was mocked. No live accounts or emails were created. |
+| `npm run db:setup-file` | Generated fresh setup and additive October 23 upgrade. No SQL was applied. |
+| `git diff --check` | Passed. |
+| `npm run test:integration` | Both suites stopped at setup: `.env.test` is missing. Zero hosted cases passed or executed. |
+| `npm run test:e2e -- tests/e2e/public.spec.ts` | Blocked before browser tests: Next web server cannot bind `127.0.0.1:3000` (`listen EPERM`). |
+| Separate system-Chrome launch | Browser exited during launch; no screenshots or visual/keyboard inspection completed. |
+| Optional PostgreSQL initialization without Docker | Failed at shared-memory creation (`shmget: Operation not permitted`); no schema validation performed. |
+
+Dependency installation: sandbox registry lookup returned `ENOTFOUND`. The escalation was not executed because automatic approval review returned **403** for unavailable configured review model `gpt-5.6-luna`. Approval was not bypassed. Planned Radix/dnd-kit packages were not installed. Native disclosure/dialog/skill controls and native dragging to prepare a selection are implemented, with keyboard/touch selection buttons. The planned dnd-kit sensor integration remains blocked; its acceptance is not marked complete.
+
+Real integration cases were added/updated for admin attribution, IBM subdomains/spoof rejection, catalog limits/retirement/requests, private links, invitation consent/duplicates/reinvites/cancellation/races, candidate eligibility, preserved evidence, and completion cleanup. Browser cases were updated for catalog pickers/Projects labels and added for assignment consent, filters, persistent theme, and confirmed logout. These suites remain **unexecuted** beyond the setup failures described above.
+
+Still required: apply/test the upgrade in a dedicated Supabase Cloud project; run both real suites; inspect responsive light/dark/keyboard interactions and project-switch races; install/validate dnd-kit when dependency access is restored; then perform the production migration/deployment and live verification. No user account was deleted, no SMTP setting changed, and no production schema or Worker was updated in this implementation run.
+
+---
+
 # Core release acceptance record
 
 ## Password confirmation and repeat-link experience — October 22, 2026

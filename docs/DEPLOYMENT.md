@@ -2,9 +2,11 @@
 
 The Next.js application runs on **Cloudflare Workers with OpenNext**. Supabase remains the authentication and database provider. Server Actions, SSR sessions, database permissions, and the contribution workflow remain part of the application.
 
-**First release selected:** publish the public IBM homepage at `projects.fncai.org` while Supabase is being configured. The domain's DNS is already managed by Cloudflare. The local `.env.production` is set to the explicit homepage-only mode; sign-in displays an availability notice and protected workspace pages remain closed. Supabase and email setup below are required for the later authenticated release.
+**First release selected:** publish the public IBM homepage at `projects.fncai.org` while Supabase is being configured. The domain's DNS is already managed by Cloudflare. In explicit homepage-only mode, sign-in displays an availability notice and protected workspace pages remain closed. Retain your existing authenticated production settings if signup/login are already enabled. Supabase and email setup below are required for the later authenticated release.
 
-The supplied terminal log confirms successful dependency installation, Cloudflare OAuth login, an OpenNext adapter build, and Worker deployment to the custom domain. The subsequent verification failed at DNS lookup (`ENOTFOUND`), before HTTPS or application checks could run. That establishes a successful upload, not a verified live site. The agent's own DNS/HTTPS checks are blocked by sandbox network restrictions. Local public Supabase settings are configured; production remains in homepage-only mode.
+The supplied terminal log confirms successful dependency installation, Cloudflare OAuth login, an OpenNext adapter build, and Worker deployment to the custom domain. The subsequent verification failed at DNS lookup (`ENOTFOUND`), before HTTPS or application checks could run. That establishes a successful upload, not a verified live site. The agent's own DNS/HTTPS checks are blocked by sandbox network restrictions. This historical upload record does not establish the currently deployed configuration.
+
+For the October 23 application changes, apply [the ordered database upgrade](UPDATE_SETUP.md) before deploying the dependent UI. Hosted database, browser, and live verification remain separate release gates.
 
 ## 1. Prepare your Cloudflare account
 
@@ -55,7 +57,7 @@ Under **Authentication → URL Configuration**, set:
 | Site URL | `https://projects.fncai.org` |
 | Allowed redirect URL | `https://projects.fncai.org/auth/confirm` |
 
-Keep email/password authentication and email confirmation enabled. Apply the IBM signup migration after the core migration and install both branded templates from [email setup](EMAIL_SETUP.md) in the hosted Auth email settings. Exact `@ibm.com` addresses then receive automatic member approval without overriding revoked access. The new confirmation page requires an explicit button press before consuming a custom-template token. Configure local development redirects separately; avoid wildcard production redirects.
+Keep email/password authentication and email confirmation enabled. Apply the IBM signup migration after the core migration and install both branded templates from [email setup](EMAIL_SETUP.md) in the hosted Auth email settings. `ibm.com` and valid nested-subdomain addresses then receive automatic member approval without overriding revoked access. The confirmation page automatically submits verification after navigation, signs in on success, and retains an explicit continue button as fallback. GET/prefetch alone does not consume a token. Configure local development redirects separately; avoid wildcard production redirects.
 
 ## 4. Build and test the Worker
 

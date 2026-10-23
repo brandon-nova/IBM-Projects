@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 
 test("targeted reset verifies the personal admin before deletion and preserves linked work and revocations", () => {
-  for (const scenario of ["success", "linked-work", "admin-not-ready", "already-absent", "revoked", "wrong-project"]) {
+  for (const scenario of ["success", "linked-work", "linked-links", "linked-skills", "linked-events", "linked-tasks", "admin-not-ready", "already-absent", "revoked", "wrong-project"]) {
     const source = `
       const scenario=${JSON.stringify(scenario)};
       process.env.NEXT_PUBLIC_SUPABASE_URL=scenario==='wrong-project'?'https://other.supabase.co':'https://hatvbfuznerrprpuccpj.supabase.co';
@@ -28,7 +28,7 @@ test("targeted reset verifies the personal admin before deletion and preserves l
           if(url.searchParams.get('email')==='eq.btongnova@gmail.com'){verifiedAccess=true;return Response.json([{active:true,user_id:admin.id}]);}
           return Response.json([{active:scenario!=='revoked',user_id:deleted?null:target.id}]);
         }
-        if(['/rest/v1/projects','/rest/v1/project_members','/rest/v1/project_requests','/rest/v1/project_deliverables'].includes(path))return Response.json(scenario==='linked-work'&&path.endsWith('/project_deliverables')?[{id:'accepted-evidence'}]:[]);
+        if(['/rest/v1/projects','/rest/v1/project_members','/rest/v1/project_requests','/rest/v1/project_deliverables','/rest/v1/project_links','/rest/v1/skill_requests','/rest/v1/project_request_events','/rest/v1/project_tasks'].includes(path))return Response.json(((scenario==='linked-work'&&path.endsWith('/project_deliverables'))||(scenario==='linked-links'&&path.endsWith('/project_links'))||(scenario==='linked-skills'&&path.endsWith('/skill_requests'))||(scenario==='linked-events'&&path.endsWith('/project_request_events'))||(scenario==='linked-tasks'&&path.endsWith('/project_tasks')))?[{id:'accepted-evidence'}]:[]);
         if(path==='/auth/v1/admin/users/ibm-test-id'&&method==='DELETE'){
           if(!verifiedRole||!verifiedAccess||scenario==='admin-not-ready'||scenario==='linked-work')throw new Error('Unsafe deletion');
           deletions++;deleted=true;return Response.json({});
@@ -41,7 +41,7 @@ test("targeted reset verifies the personal admin before deletion and preserves l
     const summary = JSON.parse(result.stdout.split("\n").find((line) => line.startsWith("RESULT ")).slice(7));
     assert(!`${result.stdout}${result.stderr}`.includes("test-password-never-print"));
     assert(!`${result.stdout}${result.stderr}`.includes("test-private"));
-    const blocked = ["linked-work", "admin-not-ready", "wrong-project"].includes(scenario);
+    const blocked = ["linked-work", "linked-links", "linked-skills", "linked-events", "linked-tasks", "admin-not-ready", "wrong-project"].includes(scenario);
     assert.equal(result.status, blocked ? 1 : 0, result.stderr);
     assert.equal(summary.deletions, ["success", "revoked"].includes(scenario) ? 1 : 0);
     if (scenario === "wrong-project") assert.equal(summary.mutations, 0);

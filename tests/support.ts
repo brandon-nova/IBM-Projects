@@ -13,6 +13,7 @@ export async function fixtures() {
   const runId = randomUUID().replaceAll("-", "").slice(0,16);
   const created: Actor[] = [];
   const approved: string[] = [];
+  const newSkills: string[] = [];
   async function call<T = unknown>(path: string, method = "GET", body?: unknown, token: string = key!): Promise<ApiResponse<T>> {
     const response = await fetch(`${url}${path}`, { method,
       headers: { apikey:key!, Authorization:`Bearer ${token}`, "Content-Type":"application/json", Prefer:"return=representation" },
@@ -48,10 +49,12 @@ export async function fixtures() {
     // Delete only fixture-owned projects and accounts. No resets or global deletes.
     for (const user of created) await ok(`/rest/v1/projects?creator_id=eq.${user.id}`,"DELETE",undefined,service);
     for (const user of created) {
+      await ok(`/rest/v1/skill_requests?or=(requester_id.eq.${user.id},reviewed_by.eq.${user.id})`,"DELETE",undefined,service);
       // Last-admin protections apply to app callers, not this provisioning client.
       await ok(`/auth/v1/admin/users/${user.id}`,"DELETE",undefined,service);
     }
+    for (const sid of newSkills) await ok(`/rest/v1/skills?id=eq.${sid}`,"DELETE",undefined,service);
     for (const email of approved) await ok(`/rest/v1/approved_emails?email=eq.${encodeURIComponent(email)}`,"DELETE",undefined,service);
   }
-  return { actor, call, ok, rpc, cleanup, runId, service };
+  return { actor, call, ok, rpc, cleanup, runId, service, trackSkill:(id:string) => newSkills.push(id) };
 }

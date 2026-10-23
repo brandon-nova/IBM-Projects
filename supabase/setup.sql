@@ -645,10 +645,930 @@ revoke all on function public.restore_member_directory_visibility() from public,
 create trigger restore_member_directory_visibility after update of role on public.user_roles
 for each row execute function public.restore_member_directory_visibility();
 
+-- Source: supabase/migrations/20261023000100_access_and_admin_permissions.sql
+-- IBM subdomains and administrator parity. Apply after the four 20261022 migrations.
+create function public.ibm_email(p_email text) returns boolean
+language sql immutable set search_path = '' as $$
+  select coalesce(p_email ~* '^[^[:space:]@]+@([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?[.])*ibm[.]com$'
+    and pg_catalog.length(pg_catalog.split_part(p_email, '@', 2)) <= 253, false);
+$$;
+revoke all on function public.ibm_email(text) from public, anon, authenticated;
+
+create or replace function public.provision_workspace_user() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare allowed public.approved_emails;
+begin
+  if public.ibm_email(new.email) then
+    insert into public.approved_emails(email, active) values (lower(new.email), true)
+      on conflict (email) do nothing;
+  end if;
+
+  select * into allowed from public.approved_emails where email = lower(new.email) for update;
+  if not found or not allowed.active or allowed.user_id is not null then
+    raise exception 'This email has not been approved for workspace access.' using errcode = '42501';
+  end if;
+  update public.approved_emails set user_id = new.id where email = allowed.email;
+  insert into public.profiles(user_id, display_name) values
+    (new.id, left(coalesce(nullif(btrim(new.raw_user_meta_data->>'display_name'), ''), split_part(new.email, '@', 1)), 80));
+  insert into public.user_roles(user_id) values (new.id);
+  insert into public.user_availability(user_id) values (new.id);
+  return new;
+end;
+$$;
+
+create or replace function public.edit_project(p_project_id uuid, p_title text, p_description text, p_skills text[], p_estimated_hours numeric default null)
+returns uuid language plpgsql security definer set search_path = '' as $$
+declare p public.projects; tag text;
+begin
+  perform public.assert_active();
+  select * into p from public.projects where id = p_project_id for update;
+  perform public.assert_active();
+  if p.id is null or not (public.workspace_admin() or p.owner_id is not distinct from auth.uid() or (p.owner_id is null and p.creator_id = auth.uid() and p.approval_status in ('draft','pending','rejected'))) then
+    raise exception 'You cannot edit this project.' using errcode = '42501';
+  end if;
+  if p.work_status = 'completed' then raise exception 'Completed projects cannot be edited.'; end if;
+  if coalesce(cardinality(p_skills),0) not between 1 and 20 then raise exception 'Choose between 1 and 20 skills.'; end if;
+  update public.projects set title = btrim(p_title), description = btrim(p_description), estimated_hours = p_estimated_hours where id = p_project_id;
+  delete from public.project_skills where project_id = p_project_id;
+  foreach tag in array p_skills loop
+    insert into public.project_skills values(p_project_id, public.ensure_skill(tag)) on conflict do nothing;
+  end loop;
+  return p_project_id;
+end;
+$$;
+
+create or replace function public.request_publication(p_project_id uuid) returns uuid
+language plpgsql security definer set search_path = '' as $$
+declare p public.projects;
+begin
+  perform public.assert_active();
+  select * into p from public.projects where id = p_project_id for update;
+  perform public.assert_active();
+  if p.id is null or not (public.workspace_admin() or p.creator_id = auth.uid() or p.owner_id is not distinct from auth.uid()) then raise exception 'You cannot submit this proposal.' using errcode = '42501'; end if;
+  if p.approval_status not in ('draft','rejected') or p.work_status = 'completed' then raise exception 'This project cannot be submitted for approval.'; end if;
+  update public.projects set approval_status = 'pending', visibility = 'private' where id = p_project_id;
+  return p_project_id;
+end;
+$$;
+
+create or replace function public.review_join(p_request_id uuid, p_accept boolean) returns uuid
+language plpgsql security definer set search_path = '' as $$
+declare r public.project_requests; p public.projects;
+begin
+  perform public.assert_active();
+  select * into r from public.project_requests where id = p_request_id;
+  select * into p from public.projects where id = r.project_id for update;
+  perform public.assert_active();
+  if p.id is null or (p.owner_id is distinct from auth.uid() and not public.workspace_admin()) then raise exception 'Only the owner or an admin can review requests.' using errcode = '42501'; end if;
+  select * into r from public.project_requests where id = p_request_id for update;
+  perform public.assert_active();
+  if r.status <> 'pending' or r.request_type <> 'join' or p.work_status = 'completed' then raise exception 'This request cannot be reviewed.'; end if;
+  if not exists (select 1 from public.approved_emails where user_id = r.user_id and active) then raise exception 'This user no longer has workspace access.'; end if;
+  if p_accept then
+    insert into public.project_members(project_id,user_id) values(r.project_id,r.user_id)
+      on conflict(project_id,user_id) do update set membership_status = 'active';
+  end if;
+  update public.project_requests set status = case when p_accept then 'accepted' else 'rejected' end, reviewed_by = auth.uid() where id = p_request_id;
+  return r.project_id;
+end;
+$$;
+
+create or replace function public.review_deliverable(p_deliverable_id uuid, p_accept boolean, p_feedback text default '') returns uuid
+language plpgsql security definer set search_path = '' as $$
+declare d public.project_deliverables; p public.projects;
+begin
+  perform public.assert_active();
+  select * into d from public.project_deliverables where id = p_deliverable_id;
+  select * into p from public.projects where id = d.project_id for update;
+  perform public.assert_active();
+  if p.id is null or (p.owner_id is distinct from auth.uid() and not public.workspace_admin()) then raise exception 'Only the owner or an admin can review work.' using errcode = '42501'; end if;
+  select * into d from public.project_deliverables where id = p_deliverable_id for update;
+  perform public.assert_active();
+  if p.work_status = 'completed' or d.status = 'accepted' then raise exception 'This contribution can no longer be reviewed.'; end if;
+  if p_accept is null then raise exception 'Choose a review decision.'; end if;
+  if not p_accept and char_length(btrim(coalesce(p_feedback,''))) = 0 then raise exception 'Explain what needs to change.'; end if;
+  update public.project_deliverables set status = case when p_accept then 'accepted'::public.deliverable_status else 'changes_requested'::public.deliverable_status end,
+    reviewed_by = auth.uid(), reviewed_at = now(), feedback = btrim(coalesce(p_feedback,'')) where id = p_deliverable_id;
+  return d.project_id;
+end;
+$$;
+
+create or replace function public.complete_project(p_project_id uuid) returns uuid
+language plpgsql security definer set search_path = '' as $$
+declare p public.projects;
+begin
+  perform public.assert_active();
+  select * into p from public.projects where id = p_project_id for update;
+  perform public.assert_active();
+  if p.id is null or (p.owner_id is distinct from auth.uid() and not public.workspace_admin()) then raise exception 'Only the owner or an admin can complete this project.' using errcode = '42501'; end if;
+  if p.work_status = 'completed' then raise exception 'This project is already completed.'; end if;
+  if not exists(select 1 from public.project_deliverables where project_id = p_project_id and status = 'accepted') then raise exception 'Accept at least one contribution before completing the project.'; end if;
+  update public.projects set work_status = 'completed', completed_at = now(), completed_by = auth.uid() where id = p_project_id;
+  return p_project_id;
+end;
+$$;
+
+create or replace function public.start_project(p_project_id uuid) returns uuid
+language plpgsql security definer set search_path = '' as $$
+begin
+  perform public.assert_active();
+  perform 1 from public.projects where id = p_project_id and (owner_id = auth.uid() or public.workspace_admin()) and work_status = 'open' for update;
+  if not found then raise exception 'Only the owner or an admin can start an open project.' using errcode = '42501'; end if;
+  update public.projects set work_status = 'in_progress' where id = p_project_id;
+  return p_project_id;
+end;
+$$;
+
+-- Source: supabase/migrations/20261023000200_skill_catalog_and_profile_limits.sql
+-- Catalog-only skills. Legacy RPCs remain safe for old tabs and seed tools.
+-- Inventory without truncating or deleting historical data.
+do $$ begin
+  raise notice 'Legacy bios over 360: %', (select count(*) from public.profiles where char_length(bio)>360);
+  raise notice 'Legacy learning lists over six: %', (select count(*) from (select user_id from public.user_skills where type='learning' group by user_id having count(*)>6) legacy);
+end $$;
+alter table public.skills add column active boolean not null default true;
+create table public.skill_requests (
+  id uuid primary key default gen_random_uuid(),
+  requester_id uuid not null references public.profiles(user_id),
+  name text not null check (char_length(name) between 1 and 80),
+  normalized_name text generated always as (lower(regexp_replace(btrim(name), '[[:space:]]+', ' ', 'g'))) stored,
+  reason text not null default '' check (char_length(reason) <= 360),
+  status text not null default 'pending' check (status in ('pending','approved','rejected')),
+  reviewed_by uuid references public.profiles(user_id),
+  reviewed_at timestamptz,
+  feedback text not null default '' check (char_length(feedback) <= 360),
+  approved_skill_id uuid references public.skills(id),
+  created_at timestamptz not null default now(),
+  check ((status = 'pending' and reviewed_by is null and reviewed_at is null)
+    or (status <> 'pending' and reviewed_by is not null and reviewed_at is not null)),
+  check (status <> 'approved' or approved_skill_id is not null)
+);
+create unique index skill_requests_pending_name on public.skill_requests(normalized_name) where status = 'pending';
+alter table public.skill_requests enable row level security;
+revoke all on public.skill_requests from anon, authenticated;
+grant select on public.skill_requests to authenticated;
+grant all on public.skill_requests to service_role;
+create policy skill_request_read on public.skill_requests for select to authenticated
+  using (public.workspace_active() and (requester_id = auth.uid() or public.workspace_admin()));
+
+-- Legacy bios remain readable. Only newly inserted/changed bios are restricted,
+-- so visibility changes and role demotion never fail on an old long biography.
+create function public.limit_profile_bio() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if char_length(new.bio) > 360 and (tg_op = 'INSERT' or new.bio is distinct from old.bio) then
+    raise exception 'Use at most 360 characters for your bio.';
+  end if;
+  return new;
+end;
+$$;
+create trigger limit_profile_bio before insert or update of bio on public.profiles
+for each row execute function public.limit_profile_bio();
+
+create or replace function public.ensure_skill(p_name text) returns uuid
+language plpgsql security definer set search_path = '' as $$
+declare result uuid;
+begin
+  select id into result from public.skills where lower(regexp_replace(btrim(name),'[[:space:]]+',' ','g')) = lower(regexp_replace(btrim(p_name),'[[:space:]]+',' ','g')) and active order by created_at,id limit 1;
+  if result is null then raise exception 'Select an approved skill from the catalog, or request it.'; end if;
+  return result;
+end;
+$$;
+
+create function public.catalog_ids(p_names text[]) returns uuid[]
+language plpgsql security definer set search_path = '' as $$
+declare result uuid[] := '{}'; item text; sid uuid;
+begin
+  if coalesce(cardinality(p_names),0) > 20 then raise exception 'Choose up to 20 skills.'; end if;
+  foreach item in array coalesce(p_names, array[]::text[]) loop
+    select id into sid from public.skills where lower(regexp_replace(btrim(name),'[[:space:]]+',' ','g')) = lower(regexp_replace(btrim(item),'[[:space:]]+',' ','g')) order by created_at,id limit 1;
+    if sid is null then raise exception 'Select an approved skill from the catalog, or request it.'; end if;
+    result := array_append(result, sid);
+  end loop;
+  return result;
+end;
+$$;
+
+create function public.save_profile_skills(p_display_name text, p_bio text, p_existing_ids uuid[], p_learning_ids uuid[], p_available_hours numeric)
+returns uuid language plpgsql security definer set search_path = '' as $$
+declare existing_ids uuid[]; learning_ids uuid[];
+begin
+  perform public.assert_active();
+  perform 1 from public.profiles where user_id = auth.uid() for update;
+  perform public.assert_active();
+  if array_position(p_existing_ids,null) is not null or array_position(p_learning_ids,null) is not null then raise exception 'Choose catalog skills.'; end if;
+  select coalesce(array_agg(distinct x), '{}') into existing_ids from unnest(p_existing_ids) x;
+  select coalesce(array_agg(distinct x), '{}') into learning_ids from unnest(p_learning_ids) x;
+  if cardinality(existing_ids) > 20 or cardinality(learning_ids) > 6 then raise exception 'Choose up to 20 existing skills and 6 learning interests.'; end if;
+  if char_length(btrim(p_bio)) > 360 then raise exception 'Use at most 360 characters for your bio.'; end if;
+  if exists(select 1 from (select x as sid,'existing'::public.skill_type as kind from unnest(existing_ids) x union all select x,'learning'::public.skill_type from unnest(learning_ids) x) chosen where not exists(
+    select 1 from public.skills s where s.id = chosen.sid and (s.active or exists(select 1 from public.user_skills u where u.user_id = auth.uid() and u.skill_id = s.id and u.type=chosen.kind)))) then
+    raise exception 'Choose approved skills from the catalog.';
+  end if;
+  update public.profiles set display_name = btrim(p_display_name), bio = btrim(p_bio) where user_id = auth.uid();
+  update public.user_availability set available_hours = p_available_hours where user_id = auth.uid();
+  delete from public.user_skills where user_id = auth.uid();
+  insert into public.user_skills select auth.uid(),x,'existing'::public.skill_type from unnest(existing_ids) x;
+  insert into public.user_skills select auth.uid(),x,'learning'::public.skill_type from unnest(learning_ids) x;
+  return auth.uid();
+end;
+$$;
+create or replace function public.save_profile(p_display_name text, p_bio text, p_existing_skills text[], p_learning_skills text[], p_available_hours numeric)
+returns uuid language plpgsql security definer set search_path = '' as $$
+begin
+  perform public.assert_active();
+  return public.save_profile_skills(p_display_name,p_bio,public.catalog_ids(p_existing_skills),public.catalog_ids(p_learning_skills),p_available_hours);
+end;
+$$;
+
+create function public.save_learning_interest(p_skill_id uuid) returns uuid
+language plpgsql security definer set search_path = '' as $$
+begin
+  perform public.assert_active();
+  perform 1 from public.profiles where user_id = auth.uid() for update;
+  perform public.assert_active();
+  if exists(select 1 from public.user_skills where user_id = auth.uid() and skill_id = p_skill_id and type = 'learning') then return p_skill_id; end if;
+  if (select count(*) from public.user_skills where user_id = auth.uid() and type = 'learning') >= 6 then raise exception 'Choose up to 6 learning interests. Edit your profile to make room.'; end if;
+  if not exists(select 1 from public.skills where id = p_skill_id and active) then raise exception 'Choose an approved skill.'; end if;
+  insert into public.user_skills values(auth.uid(),p_skill_id,'learning');
+  return p_skill_id;
+end;
+$$;
+create or replace function public.save_interest(p_interest text) returns uuid
+language plpgsql security definer set search_path = '' as $$
+begin
+  perform public.assert_active();
+  return public.save_learning_interest(public.ensure_skill(p_interest));
+end;
+$$;
+
+create function public.create_project_with_skills(p_title text, p_description text, p_skill_ids uuid[], p_estimated_hours numeric default null)
+returns uuid language plpgsql security definer set search_path = '' as $$
+declare result uuid;
+begin
+  perform public.assert_active();
+  if coalesce(cardinality(p_skill_ids),0) not between 1 and 20 or array_position(p_skill_ids,null) is not null then raise exception 'Choose 1 to 20 catalog skills.'; end if;
+  if exists(select 1 from unnest(p_skill_ids) x where not exists(select 1 from public.skills where id = x and active)) then raise exception 'Choose approved skills.'; end if;
+  insert into public.projects(creator_id,title,description,estimated_hours) values(auth.uid(),btrim(p_title),btrim(p_description),p_estimated_hours) returning id into result;
+  insert into public.project_members(project_id,user_id) values(result,auth.uid());
+  insert into public.project_skills select distinct result,x from unnest(p_skill_ids) x;
+  return result;
+end;
+$$;
+create function public.edit_project_with_skills(p_project_id uuid, p_title text, p_description text, p_skill_ids uuid[], p_estimated_hours numeric default null)
+returns uuid language plpgsql security definer set search_path = '' as $$
+declare p public.projects;
+begin
+  perform public.assert_active();
+  select * into p from public.projects where id = p_project_id for update;
+  perform public.assert_active();
+  if p.id is null or not (public.workspace_admin() or p.owner_id is not distinct from auth.uid() or (p.owner_id is null and p.creator_id = auth.uid() and p.approval_status <> 'approved')) then raise exception 'You cannot edit this project.' using errcode = '42501'; end if;
+  if p.work_status = 'completed' then raise exception 'Completed projects cannot be edited.'; end if;
+  if coalesce(cardinality(p_skill_ids),0) not between 1 and 20 or array_position(p_skill_ids,null) is not null then raise exception 'Choose 1 to 20 catalog skills.'; end if;
+  if exists(select 1 from unnest(p_skill_ids) x where not exists(select 1 from public.skills s where s.id = x and (s.active or exists(select 1 from public.project_skills ps where ps.project_id = p_project_id and ps.skill_id = x)))) then raise exception 'Choose approved skills.'; end if;
+  update public.projects set title = btrim(p_title),description = btrim(p_description),estimated_hours = p_estimated_hours where id = p_project_id;
+  delete from public.project_skills where project_id = p_project_id;
+  insert into public.project_skills select distinct p_project_id,x from unnest(p_skill_ids) x;
+  return p_project_id;
+end;
+$$;
+create or replace function public.create_project(p_title text,p_description text,p_skills text[],p_estimated_hours numeric default null)
+returns uuid language plpgsql security definer set search_path = '' as $$
+begin
+  perform public.assert_active();
+  return public.create_project_with_skills(p_title,p_description,public.catalog_ids(p_skills),p_estimated_hours);
+end;
+$$;
+create or replace function public.edit_project(p_project_id uuid,p_title text,p_description text,p_skills text[],p_estimated_hours numeric default null)
+returns uuid language plpgsql security definer set search_path = '' as $$
+begin
+  perform public.assert_active();
+  return public.edit_project_with_skills(p_project_id,p_title,p_description,public.catalog_ids(p_skills),p_estimated_hours);
+end;
+$$;
+
+create function public.request_skill(p_name text,p_reason text default '') returns uuid
+language plpgsql security definer set search_path = '' as $$
+declare result uuid; clean text := regexp_replace(btrim(p_name),'[[:space:]]+',' ','g');
+begin
+  perform public.assert_active();
+  if exists(select 1 from public.skills where lower(regexp_replace(btrim(name),'[[:space:]]+',' ','g')) = lower(clean) and active) then raise exception 'This skill is already in the catalog.'; end if;
+  insert into public.skill_requests(requester_id,name,reason) values(auth.uid(),clean,btrim(p_reason)) on conflict do nothing returning id into result;
+  if result is null then raise exception 'This skill has already been requested and is awaiting review.'; end if;
+  return result;
+end;
+$$;
+create function public.review_skill_request(p_request_id uuid,p_approve boolean,p_feedback text default '') returns uuid
+language plpgsql security definer set search_path = '' as $$
+declare r public.skill_requests; sid uuid;
+begin
+  if not public.workspace_admin() then raise exception 'Administrator access is required.' using errcode = '42501'; end if;
+  select * into r from public.skill_requests where id = p_request_id for update;
+  if not found or r.status <> 'pending' or p_approve is null then raise exception 'No pending skill request.'; end if;
+  if not public.workspace_admin() then raise exception 'Administrator access is required.' using errcode = '42501'; end if;
+  if p_approve then
+    perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(r.normalized_name,0));
+    select id into sid from public.skills where lower(regexp_replace(btrim(name),'[[:space:]]+',' ','g'))=r.normalized_name order by created_at,id limit 1;
+    if sid is null then
+      insert into public.skills(name) values(r.name) on conflict(lower(name)) do update set active = true returning id into sid;
+    else update public.skills set active=true where id=sid;
+    end if;
+  elsif char_length(btrim(coalesce(p_feedback,''))) = 0 then raise exception 'Explain why the skill was declined.';
+  end if;
+  update public.skill_requests set status = case when p_approve then 'approved' else 'rejected' end,
+    approved_skill_id = sid,reviewed_by = auth.uid(),reviewed_at = now(),feedback = btrim(coalesce(p_feedback,'')) where id = r.id;
+  return r.id;
+end;
+$$;
+create function public.set_skill_active(p_skill_id uuid,p_active boolean) returns uuid
+language plpgsql security definer set search_path = '' as $$
+begin
+  if not public.workspace_admin() then raise exception 'Administrator access is required.' using errcode = '42501'; end if;
+  if p_active is null then raise exception 'Choose a catalog status.'; end if;
+  update public.skills set active = p_active where id = p_skill_id;
+  if not found then raise exception 'Skill not found.'; end if;
+  return p_skill_id;
+end;
+$$;
+
+-- Restrict every newly defined function. Internal helpers are never user-callable.
+do $$ declare f record; begin
+  for f in select p.oid::regprocedure as signature,p.proname from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid=p.pronamespace
+    where n.nspname='public' and p.proname = any(array['limit_profile_bio','ensure_skill','catalog_ids','save_profile_skills','save_learning_interest','create_project_with_skills','edit_project_with_skills','request_skill','review_skill_request','set_skill_active']) loop
+    execute format('revoke all on function %s from public, anon, authenticated',f.signature);
+    if f.proname not in ('limit_profile_bio','ensure_skill','catalog_ids') then execute format('grant execute on function %s to authenticated',f.signature); end if;
+  end loop;
+end $$;
+insert into public.skills (name) values
+('Python'), ('SQL'), ('AI'), ('Design'), ('Web development'), ('React'),
+('TypeScript'), ('Data engineering'), ('Documentation'), ('Automation'),
+('JavaScript'),('Java'),('Go'),('C#'),('C++'),('Bash'),('R'),('HTML'),('CSS'),
+('Node.js'),('Next.js'),('Angular'),('Vue.js'),('REST APIs'),('GraphQL'),
+('PostgreSQL'),('Db2'),('MongoDB'),('Data analysis'),('Data visualization'),('Excel'),
+('Power BI'),('Tableau'),('Machine learning'),('Generative AI'),('watsonx'),
+('UX design'),('UI design'),('User research'),('Accessibility'),('Technical writing'),
+('Testing'),('Quality assurance'),('Git'),('Docker'),('Kubernetes'),('OpenShift'),
+('CI/CD'),('Terraform'),('IBM Cloud'),('AWS'),('Azure'),('Google Cloud'),('Linux'),
+('Cybersecurity'),('Project coordination'),('Agile'),('Facilitation'),('Public speaking')
+on conflict (lower(name)) do nothing;
+
+-- Source: supabase/migrations/20261023000300_project_links.sql
+create table public.project_links (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  label text not null check (char_length(btrim(label)) between 1 and 80),
+  url text not null check (public.valid_deliverable_url(url)),
+  created_by uuid not null references public.profiles(user_id),
+  updated_by uuid not null references public.profiles(user_id),
+  created_at timestamptz not null default now(),updated_at timestamptz not null default now(),
+  unique(project_id,url)
+);
+create trigger project_links_updated before update on public.project_links for each row execute function public.touch_updated_at();
+alter table public.project_links enable row level security;
+revoke all on public.project_links from anon,authenticated;
+grant select on public.project_links to authenticated;
+grant all on public.project_links to service_role;
+create policy project_links_read on public.project_links for select to authenticated using(public.project_visible(project_id));
+create function public.save_project_link(p_project_id uuid,p_label text,p_url text,p_link_id uuid default null) returns uuid
+language plpgsql security definer set search_path = '' as $$
+declare p public.projects; result uuid;
+begin
+  perform public.assert_active();
+  select * into p from public.projects where id=p_project_id for update;
+  perform public.assert_active();
+  if p.id is null or (p.owner_id is distinct from auth.uid() and not public.workspace_admin()) then raise exception 'Only the owner or an admin can edit links.' using errcode='42501'; end if;
+  if p.work_status='completed' then raise exception 'Completed project links cannot be edited.'; end if;
+  if p_link_id is null then
+    if (select count(*) from public.project_links where project_id=p_project_id)>=10 then raise exception 'Use up to 10 project links.'; end if;
+    insert into public.project_links(project_id,label,url,created_by,updated_by) values(p_project_id,btrim(p_label),btrim(p_url),auth.uid(),auth.uid()) returning id into result;
+  else
+    update public.project_links set label=btrim(p_label),url=btrim(p_url),updated_by=auth.uid() where id=p_link_id and project_id=p_project_id returning id into result;
+    if result is null then raise exception 'Link not found.'; end if;
+  end if;
+  return result;
+end;
+$$;
+create function public.delete_project_link(p_link_id uuid) returns uuid
+language plpgsql security definer set search_path = '' as $$
+declare pid uuid; p public.projects;
+begin
+  perform public.assert_active();
+  select project_id into pid from public.project_links where id=p_link_id;
+  select * into p from public.projects where id=pid for update;
+  perform public.assert_active();
+  if p.id is null or (p.owner_id is distinct from auth.uid() and not public.workspace_admin()) then raise exception 'Only the owner or an admin can edit links.' using errcode='42501'; end if;
+  if p.work_status='completed' then raise exception 'Completed project links cannot be edited.'; end if;
+  delete from public.project_links where id=p_link_id;
+  return pid;
+end;
+$$;
+revoke all on function public.save_project_link(uuid,text,text,uuid),public.delete_project_link(uuid) from public,anon,authenticated;
+grant execute on function public.save_project_link(uuid,text,text,uuid),public.delete_project_link(uuid) to authenticated;
+
+-- Source: supabase/migrations/20261023000400_project_invitations.sql
+-- Consent-based assignments. All mutations lock the project before requests.
+alter table public.project_requests drop constraint project_requests_status_check;
+alter table public.project_requests add constraint project_requests_status_check check(status in ('pending','accepted','rejected','canceled'));
+alter table public.project_requests
+  add column invited_by uuid references public.profiles(user_id),
+  add column suggestion_kind text not null default 'contribution' check(suggestion_kind in ('contribution','training')),
+  add column reason text not null default '' check(char_length(reason)<=360),
+  add column last_invited_at timestamptz,
+  add column responded_at timestamptz,
+  add column canceled_by uuid references public.profiles(user_id);
+create table public.project_request_events (
+  id uuid primary key default gen_random_uuid(),
+  request_id uuid not null references public.project_requests(id) on delete cascade,
+  actor_id uuid not null references public.profiles(user_id),
+  event text not null check(event in ('invited','reinvited','accepted','declined','canceled')),
+  reason text not null default '', created_at timestamptz not null default now()
+);
+create index project_request_events_request on public.project_request_events(request_id,created_at);
+alter table public.project_request_events enable row level security;
+revoke all on public.project_request_events from public,anon,authenticated;
+grant select on public.project_request_events to authenticated;
+grant all on public.project_request_events to service_role;
+create policy request_events_read on public.project_request_events for select to authenticated using(
+  public.workspace_active() and exists(select 1 from public.project_requests r where r.id=request_id
+    and (r.user_id=auth.uid() or public.workspace_admin() or exists(select 1 from public.projects p where p.id=r.project_id and p.owner_id=auth.uid())))
+);
+
+create function public.account_eligible(p_user_id uuid) returns boolean
+language sql stable security definer set search_path='' as $$
+  select exists(select 1 from public.approved_emails a join auth.users u on u.id=a.user_id
+    where a.user_id=p_user_id and a.active and u.email_confirmed_at is not null);
+$$;
+create function public.invitation_eligible(p_project_id uuid) returns boolean
+language sql stable security definer set search_path='' as $$
+  select exists(select 1 from public.projects p where p.id=p_project_id and p.approval_status='approved'
+    and p.visibility='organization' and p.work_status<>'completed' and public.account_eligible(p.owner_id));
+$$;
+
+create function public.invite_project_members(p_project_id uuid,p_user_ids uuid[],p_kind text default 'contribution',p_reason text default '',p_reinvite boolean default false)
+returns uuid language plpgsql security definer set search_path='' as $$
+declare p public.projects; uid uuid; r public.project_requests; again boolean;
+begin
+  perform public.assert_active();
+  select * into p from public.projects where id=p_project_id for update;
+  perform public.assert_active();
+  if p.id is null or (p.owner_id is distinct from auth.uid() and not public.workspace_admin()) then raise exception 'Only the owner or an admin can invite people.' using errcode='42501'; end if;
+  if not public.invitation_eligible(p_project_id) then raise exception 'Choose a published, unfinished project with an active owner.'; end if;
+  if coalesce(cardinality(p_user_ids),0) not between 1 and 25 or array_position(p_user_ids,null) is not null then raise exception 'Choose 1 to 25 employees.'; end if;
+  if p_kind is null or p_kind not in ('contribution','training') or p_reason is null or char_length(btrim(p_reason))>360 then raise exception 'Check the invitation kind and reason.'; end if;
+  for uid in select distinct x from unnest(p_user_ids) x order by x loop
+    if not public.account_eligible(uid) then raise exception 'A selected employee no longer has active, verified access.'; end if;
+    if exists(select 1 from public.project_members where project_id=p_project_id and user_id=uid and membership_status='active') then raise exception 'A selected employee already participates.'; end if;
+    select * into r from public.project_requests where project_id=p_project_id and user_id=uid and request_type='invitation' for update;
+    if found and r.status='pending' then continue; end if;
+    again := found;
+    if again and p_reinvite is distinct from true then raise exception 'Confirm an explicit reinvitation for a previous recipient.'; end if;
+    insert into public.project_requests(project_id,user_id,request_type,invited_by,suggestion_kind,reason,last_invited_at)
+      values(p_project_id,uid,'invitation',auth.uid(),p_kind,btrim(p_reason),now())
+      on conflict(project_id,user_id,request_type) do update set status='pending',invited_by=auth.uid(),suggestion_kind=p_kind,reason=btrim(p_reason),last_invited_at=now(),responded_at=null,canceled_by=null,reviewed_by=null
+      returning * into r;
+    insert into public.project_request_events(request_id,actor_id,event,reason) values(r.id,auth.uid(),case when again then 'reinvited' else 'invited' end,r.reason);
+  end loop;
+  return p_project_id;
+end;
+$$;
+create function public.respond_project_invitation(p_request_id uuid,p_accept boolean) returns uuid
+language plpgsql security definer set search_path='' as $$
+declare r public.project_requests; p public.projects;
+begin
+  perform public.assert_active();
+  select * into r from public.project_requests where id=p_request_id;
+  select * into p from public.projects where id=r.project_id for update;
+  select * into r from public.project_requests where id=p_request_id for update;
+  perform public.assert_active();
+  if r.id is null or r.user_id is distinct from auth.uid() or r.request_type<>'invitation' then raise exception 'This invitation is not yours.' using errcode='42501'; end if;
+  if p_accept is null then raise exception 'Choose Accept or Decline.'; end if;
+  if (r.status='accepted' and p_accept) or (r.status='rejected' and not p_accept) then return r.project_id; end if;
+  if r.status<>'pending' or not public.invitation_eligible(r.project_id) then raise exception 'This invitation is no longer available.'; end if;
+  update public.project_requests set status=case when p_accept then 'accepted' else 'rejected' end,responded_at=now() where id=r.id;
+  if p_accept then
+    insert into public.project_members(project_id,user_id) values(r.project_id,auth.uid()) on conflict(project_id,user_id) do update set membership_status='active';
+    update public.project_requests set status='canceled',canceled_by=auth.uid(),responded_at=now() where project_id=r.project_id and user_id=auth.uid() and request_type='join' and status='pending';
+  end if;
+  insert into public.project_request_events(request_id,actor_id,event) values(r.id,auth.uid(),case when p_accept then 'accepted' else 'declined' end);
+  return r.project_id;
+end;
+$$;
+create function public.cancel_project_invitation(p_request_id uuid) returns uuid
+language plpgsql security definer set search_path='' as $$
+declare r public.project_requests; p public.projects;
+begin
+  perform public.assert_active();
+  select * into r from public.project_requests where id=p_request_id;
+  select * into p from public.projects where id=r.project_id for update;
+  perform public.assert_active();
+  if p.id is null or (p.owner_id is distinct from auth.uid() and not public.workspace_admin()) then raise exception 'Only the owner or an admin can cancel invitations.' using errcode='42501'; end if;
+  select * into r from public.project_requests where id=p_request_id for update;
+  perform public.assert_active();
+  if r.request_type<>'invitation' or r.status<>'pending' then raise exception 'No pending invitation.'; end if;
+  update public.project_requests set status='canceled',canceled_by=auth.uid(),responded_at=now() where id=r.id;
+  return r.project_id;
+end;
+$$;
+create function public.remove_project_member(p_project_id uuid,p_user_id uuid) returns uuid
+language plpgsql security definer set search_path='' as $$
+declare p public.projects;
+begin
+  perform public.assert_active();
+  select * into p from public.projects where id=p_project_id for update;
+  perform public.assert_active();
+  if p.id is null or (p.owner_id is distinct from auth.uid() and not public.workspace_admin()) then raise exception 'Only the owner or an admin can remove participants.' using errcode='42501'; end if;
+  if p.work_status='completed' then raise exception 'Completed project membership is preserved.'; end if;
+  if p.owner_id=p_user_id then raise exception 'Reassign the official owner before removing them.'; end if;
+  update public.project_members set membership_status='inactive' where project_id=p_project_id and user_id=p_user_id;
+  return p_project_id;
+end;
+$$;
+
+-- Every cancellation, including reconciliation, has an attributed event.
+create function public.record_request_cancellation() returns trigger
+language plpgsql security definer set search_path='' as $$
+begin
+  if new.status='canceled' and old.status is distinct from new.status then
+    insert into public.project_request_events(request_id,actor_id,event,reason)
+      values(new.id,auth.uid(),'canceled',case when new.request_type='join' then 'Invitation accepted or membership assigned' else 'Invitation canceled or membership resolved' end);
+  end if;
+  return new;
+end;
+$$;
+create trigger request_cancellation after update on public.project_requests for each row execute function public.record_request_cancellation();
+create function public.reconcile_project_invitations() returns trigger
+language plpgsql security definer set search_path='' as $$
+begin
+  if tg_table_name='projects' then
+    if new.work_status='completed' and old.work_status<>'completed' then
+      update public.project_requests set status='canceled',canceled_by=auth.uid(),responded_at=now() where project_id=new.id and request_type='invitation' and status='pending';
+    end if;
+  elsif new.membership_status='active' then
+    -- The successful path records acceptance before adding the member.
+    update public.project_requests set status='canceled',canceled_by=auth.uid(),responded_at=now()
+      where project_id=new.project_id and user_id=new.user_id and status='pending';
+  end if;
+  return new;
+end;
+$$;
+create trigger completion_invitations after update of work_status on public.projects for each row execute function public.reconcile_project_invitations();
+create trigger membership_requests after insert or update on public.project_members for each row execute function public.reconcile_project_invitations();
+
+create or replace function public.review_join(p_request_id uuid, p_accept boolean) returns uuid
+language plpgsql security definer set search_path = '' as $$
+declare r public.project_requests; p public.projects;
+begin
+  perform public.assert_active();
+  select * into r from public.project_requests where id = p_request_id;
+  select * into p from public.projects where id = r.project_id for update;
+  perform public.assert_active();
+  if p.id is null or (p.owner_id is distinct from auth.uid() and not public.workspace_admin()) then raise exception 'Only the owner or an admin can review requests.' using errcode = '42501'; end if;
+  select * into r from public.project_requests where id = p_request_id for update;
+  perform public.assert_active();
+  if r.status <> 'pending' or r.request_type <> 'join' or p.work_status = 'completed' then raise exception 'This request cannot be reviewed.'; end if;
+  if not exists (select 1 from public.approved_emails where user_id = r.user_id and active) then raise exception 'This user no longer has workspace access.'; end if;
+  if p_accept is null then raise exception 'Choose a decision.'; end if;
+  update public.project_requests set status = case when p_accept then 'accepted' else 'rejected' end, reviewed_by = auth.uid(), responded_at=now() where id = p_request_id;
+  if p_accept then
+    insert into public.project_members(project_id,user_id) values(r.project_id,r.user_id)
+      on conflict(project_id,user_id) do update set membership_status = 'active';
+  end if;
+  return r.project_id;
+end;
+$$;
+
+
+create or replace function public.assign_owner(p_project_id uuid, p_owner_id uuid) returns uuid
+language plpgsql security definer set search_path = '' as $$
+begin
+  if not public.workspace_admin() then raise exception 'Administrator access is required.' using errcode = '42501'; end if;
+  perform 1 from public.projects where id = p_project_id and work_status <> 'completed' for update;
+  if not found then raise exception 'This project is unavailable or already completed.'; end if;
+  if not public.workspace_admin() then raise exception 'Administrator access is required.' using errcode='42501'; end if;
+  if not exists (select 1 from public.approved_emails a join auth.users u on u.id = a.user_id where a.user_id = p_owner_id and a.active and u.email_confirmed_at is not null) then
+    raise exception 'Choose an active workspace user as owner.';
+  end if;
+  update public.projects set owner_id = p_owner_id where id = p_project_id;
+  insert into public.project_members(project_id, user_id) values(p_project_id, p_owner_id)
+    on conflict(project_id, user_id) do update set membership_status = 'active';
+  return p_project_id;
+end;
+$$;
+create or replace function public.review_publication(p_project_id uuid, p_approve boolean) returns uuid
+language plpgsql security definer set search_path = '' as $$
+declare p public.projects;
+begin
+  if not public.workspace_admin() then raise exception 'Administrator access is required.' using errcode = '42501'; end if;
+  select * into p from public.projects where id = p_project_id for update;
+  perform public.assert_active();
+  if not public.workspace_admin() then raise exception 'Administrator access is required.' using errcode='42501'; end if;
+  if p.id is null or p.approval_status <> 'pending' or p.work_status = 'completed' then raise exception 'No pending publication request.'; end if;
+  if p_approve is null then raise exception 'Choose a publication decision.'; end if;
+  if p_approve and (p.owner_id is null or not public.account_eligible(p.owner_id)) then
+    raise exception 'Assign an active official owner before approving publication.';
+  end if;
+  update public.projects set approval_status = case when p_approve then 'approved'::public.approval_status else 'rejected'::public.approval_status end,
+    visibility = case when p_approve then 'organization'::public.project_visibility else 'private'::public.project_visibility end where id = p_project_id;
+  return p_project_id;
+end;
+$$;
+create or replace function public.request_join(p_project_id uuid) returns uuid
+language plpgsql security definer set search_path = '' as $$
+declare p public.projects; result uuid;
+begin
+  perform public.assert_active();
+  select * into p from public.projects where id = p_project_id for update;
+  perform public.assert_active();
+  if p.id is null or p.visibility <> 'organization' or p.approval_status <> 'approved' or p.work_status = 'completed' then raise exception 'This project is not accepting requests.'; end if;
+  if public.project_member(p_project_id) then raise exception 'You already participate in this project.'; end if;
+  insert into public.project_requests(project_id, user_id) values(p_project_id, auth.uid())
+    on conflict(project_id,user_id,request_type) do update set status = 'pending', reviewed_by = null
+    returning id into result;
+  return result;
+end;
+$$;
+
+-- Scoped active candidates. RLS never needs to expose auth.users to browsers.
+create function public.assignment_candidates(p_project_id uuid,p_query text default '',p_offset integer default 0,p_limit integer default 100)
+returns table(user_id uuid,display_name text,existing_ids uuid[],learning_ids uuid[],available_hours numeric)
+language plpgsql security definer set search_path='' as $$
+begin
+  perform public.assert_active();
+  if not exists(select 1 from public.projects p where p.id=p_project_id and (p.owner_id=auth.uid() or public.workspace_admin())) then raise exception 'Owner or administrator access is required.' using errcode='42501'; end if;
+  return query select pr.user_id,pr.display_name,
+    array(select us.skill_id from public.user_skills us where us.user_id=pr.user_id and us.type='existing'),
+    array(select us.skill_id from public.user_skills us where us.user_id=pr.user_id and us.type='learning'),a.available_hours
+    from public.profiles pr left join public.user_availability a on a.user_id=pr.user_id
+    where public.account_eligible(pr.user_id) and not pr.hidden_from_people
+      and (coalesce(p_query,'')='' or pr.display_name ilike '%'||left(p_query,80)||'%' or exists(select 1 from public.user_skills us join public.skills s on s.id=us.skill_id where us.user_id=pr.user_id and s.name ilike '%'||left(p_query,80)||'%'))
+    order by pr.display_name,pr.user_id offset greatest(0,coalesce(p_offset,0)) limit least(100,greatest(1,coalesce(p_limit,100)));
+end;
+$$;
+create function public.pending_project_suggestions() returns uuid[]
+language plpgsql security definer set search_path='' as $$
+begin
+  perform public.assert_active();
+  return array(select r.id from public.project_requests r where r.user_id=auth.uid() and r.request_type='invitation'
+    and r.status='pending' and public.invitation_eligible(r.project_id) and not public.project_member(r.project_id));
+end;
+$$;
+do $$ declare f record; begin
+  for f in select p.oid::regprocedure signature,p.proname from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid=p.pronamespace
+    where n.nspname='public' and p.proname=any(array['account_eligible','invitation_eligible','invite_project_members','respond_project_invitation','cancel_project_invitation','remove_project_member','record_request_cancellation','reconcile_project_invitations','assignment_candidates','pending_project_suggestions']) loop
+    execute format('revoke all on function %s from public,anon,authenticated',f.signature);
+    if f.proname=any(array['invite_project_members','respond_project_invitation','cancel_project_invitation','remove_project_member','assignment_candidates','pending_project_suggestions']) then execute format('grant execute on function %s to authenticated',f.signature); end if;
+  end loop;
+end $$;
+
+-- Source: supabase/migrations/20261023000500_assignment_search.sql
+-- Assignment discovery is separate from permission to sign in or accept work.
+create or replace function public.assignment_candidates(p_project_id uuid,p_query text default '',p_offset integer default 0,p_limit integer default 100)
+returns table(user_id uuid,display_name text,existing_ids uuid[],learning_ids uuid[],available_hours numeric)
+language plpgsql security definer set search_path='' as $$
+declare is_admin boolean; query_text text := left(btrim(coalesce(p_query,'')),80);
+begin
+  perform public.assert_active();
+  is_admin := public.workspace_admin();
+  if not exists(select 1 from public.projects p where p.id=p_project_id and (p.owner_id=auth.uid() or is_admin)) then
+    raise exception 'Owner or administrator access is required.' using errcode='42501';
+  end if;
+  return query select pr.user_id,pr.display_name,
+    array(select us.skill_id from public.user_skills us where us.user_id=pr.user_id and us.type='existing'),
+    array(select us.skill_id from public.user_skills us where us.user_id=pr.user_id and us.type='learning'),av.available_hours
+    from public.profiles pr
+    join auth.users u on u.id=pr.user_id
+    left join public.user_availability av on av.user_id=pr.user_id
+    where exists(select 1 from public.approved_emails a where a.user_id=pr.user_id and a.active)
+      -- Hide from the ordinary directory, not authorized admin assignment tools.
+      and (is_admin or not pr.hidden_from_people)
+      and (query_text='' or pr.display_name ilike '%'||query_text||'%'
+        or (is_admin and u.email ilike '%'||query_text||'%')
+        or exists(select 1 from public.user_skills us join public.skills s on s.id=us.skill_id
+          where us.user_id=pr.user_id and s.name ilike '%'||query_text||'%'))
+    order by pr.display_name,pr.user_id
+    offset greatest(0,coalesce(p_offset,0)) limit least(100,greatest(1,coalesce(p_limit,100)));
+end;
+$$;
+revoke all on function public.assignment_candidates(uuid,text,integer,integer) from public,anon,authenticated;
+grant execute on function public.assignment_candidates(uuid,text,integer,integer) to authenticated;
+
+-- An invitation may wait for email verification. It grants no workspace access
+-- or membership; responding still calls assert_active() as the recipient.
+create or replace function public.invite_project_members(p_project_id uuid,p_user_ids uuid[],p_kind text default 'contribution',p_reason text default '',p_reinvite boolean default false)
+returns uuid language plpgsql security definer set search_path='' as $$
+declare p public.projects; uid uuid; r public.project_requests; again boolean;
+begin
+  perform public.assert_active();
+  select * into p from public.projects where id=p_project_id for update;
+  perform public.assert_active();
+  if p.id is null or (p.owner_id is distinct from auth.uid() and not public.workspace_admin()) then raise exception 'Only the owner or an admin can invite people.' using errcode='42501'; end if;
+  if not public.invitation_eligible(p_project_id) then raise exception 'Choose a published, unfinished project with an active owner.'; end if;
+  if coalesce(cardinality(p_user_ids),0) not between 1 and 25 or array_position(p_user_ids,null) is not null then raise exception 'Choose 1 to 25 employees.'; end if;
+  if p_kind is null or p_kind not in ('contribution','training') or p_reason is null or char_length(btrim(p_reason))>360 then raise exception 'Check the invitation kind and reason.'; end if;
+  for uid in select distinct x from unnest(p_user_ids) x order by x loop
+    if not exists(select 1 from public.profiles pr join auth.users u on u.id=pr.user_id
+      join public.approved_emails a on a.user_id=pr.user_id where pr.user_id=uid and a.active) then
+      raise exception 'A selected employee no longer has active workspace access.';
+    end if;
+    if exists(select 1 from public.project_members where project_id=p_project_id and user_id=uid and membership_status='active') then raise exception 'A selected employee already participates.'; end if;
+    select * into r from public.project_requests where project_id=p_project_id and user_id=uid and request_type='invitation' for update;
+    if found and r.status='pending' then continue; end if;
+    again := found;
+    if again and p_reinvite is distinct from true then raise exception 'Confirm an explicit reinvitation for a previous recipient.'; end if;
+    insert into public.project_requests(project_id,user_id,request_type,invited_by,suggestion_kind,reason,last_invited_at)
+      values(p_project_id,uid,'invitation',auth.uid(),p_kind,btrim(p_reason),now())
+      on conflict(project_id,user_id,request_type) do update set status='pending',invited_by=auth.uid(),suggestion_kind=p_kind,reason=btrim(p_reason),last_invited_at=now(),responded_at=null,canceled_by=null,reviewed_by=null
+      returning * into r;
+    insert into public.project_request_events(request_id,actor_id,event,reason) values(r.id,auth.uid(),case when again then 'reinvited' else 'invited' end,r.reason);
+  end loop;
+  return p_project_id;
+end;
+$$;
+revoke all on function public.invite_project_members(uuid,uuid[],text,text,boolean) from public,anon,authenticated;
+grant execute on function public.invite_project_members(uuid,uuid[],text,text,boolean) to authenticated;
+
+-- Source: supabase/migrations/20261023000600_project_board.sql
+-- Native boards keep all tasks when the owner switches to an external tool.
+alter table public.projects
+  add column board_mode text not null default 'native' check(board_mode in ('native','external')),
+  add column external_board_url text check(external_board_url is null or public.valid_deliverable_url(external_board_url)),
+  add constraint projects_external_board_required check(board_mode<>'external' or external_board_url is not null);
+
+create table public.project_tasks (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  title text not null check(char_length(btrim(title)) between 1 and 160),
+  description text not null default '' check(char_length(description)<=2000),
+  status text not null default 'todo' check(status in ('todo','in_progress','done')),
+  position bigint not null default 0 check(position>=0),
+  assignee_id uuid references public.profiles(user_id),
+  created_by uuid not null references public.profiles(user_id),
+  updated_by uuid not null references public.profiles(user_id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index project_tasks_board on public.project_tasks(project_id,status,position,id);
+create trigger touch_updated_at before update on public.project_tasks for each row execute function public.touch_updated_at();
+alter table public.project_tasks enable row level security;
+revoke all on public.project_tasks from public,anon,authenticated;
+grant select on public.project_tasks to authenticated;
+grant all on public.project_tasks to service_role;
+create policy project_tasks_read on public.project_tasks for select to authenticated
+  using(public.workspace_active() and public.project_visible(project_id));
+
+-- Internal helper. All task operations serialize against board mode changes,
+-- completion and membership operations through the existing project-row lock.
+create function public.lock_native_board(p_project_id uuid) returns public.projects
+language plpgsql security definer set search_path='' as $$
+declare p public.projects;
+begin
+  perform public.assert_active();
+  select * into p from public.projects where id=p_project_id for update;
+  perform public.assert_active();
+  if p.id is null or not (public.workspace_admin() or public.project_member(p_project_id)) then
+    raise exception 'Only participants or admins can edit this board.' using errcode='42501';
+  end if;
+  if p.work_status='completed' then raise exception 'Completed project boards are read-only.'; end if;
+  if p.board_mode<>'native' then raise exception 'Switch back to the native board before changing tasks.'; end if;
+  return p;
+end;
+$$;
+
+create function public.save_project_task(p_project_id uuid,p_title text,p_description text default '',p_assignee_id uuid default null,p_task_id uuid default null)
+returns uuid language plpgsql security definer set search_path='' as $$
+declare t public.project_tasks; result uuid; next_position bigint;
+begin
+  perform public.lock_native_board(p_project_id);
+  if p_title is null or char_length(btrim(p_title)) not between 1 and 160
+    or p_description is null or char_length(p_description)>2000 then raise exception 'Use a task title up to 160 characters and description up to 2000.'; end if;
+  if p_task_id is not null then
+    select * into t from public.project_tasks where id=p_task_id and project_id=p_project_id for update;
+    if t.id is null then raise exception 'This task is no longer available.'; end if;
+  end if;
+  if p_assignee_id is not null and (p_task_id is null or p_assignee_id is distinct from t.assignee_id)
+    and not exists(select 1 from public.project_members m where m.project_id=p_project_id
+      and m.user_id=p_assignee_id and m.membership_status='active' and public.account_eligible(m.user_id)) then
+    raise exception 'Assign tasks to an active project participant.';
+  end if;
+  if p_task_id is null then
+    select coalesce(max(position),0)+1 into next_position from public.project_tasks where project_id=p_project_id and status='todo';
+    insert into public.project_tasks(project_id,title,description,assignee_id,position,created_by,updated_by)
+      values(p_project_id,btrim(p_title),btrim(p_description),p_assignee_id,next_position,auth.uid(),auth.uid()) returning id into result;
+  else
+    update public.project_tasks set title=btrim(p_title),description=btrim(p_description),assignee_id=p_assignee_id,updated_by=auth.uid()
+      where id=t.id returning id into result;
+  end if;
+  return result;
+end;
+$$;
+
+create function public.move_project_task(p_project_id uuid,p_task_id uuid,p_status text) returns uuid
+language plpgsql security definer set search_path='' as $$
+declare t public.project_tasks; next_position bigint;
+begin
+  perform public.lock_native_board(p_project_id);
+  if p_status is null or p_status not in ('todo','in_progress','done') then raise exception 'Choose To Do, In Progress, or Done.'; end if;
+  select * into t from public.project_tasks where id=p_task_id and project_id=p_project_id for update;
+  if t.id is null then raise exception 'This task is no longer available.'; end if;
+  if t.status=p_status then return t.id; end if;
+  select coalesce(max(position),0)+1 into next_position from public.project_tasks where project_id=p_project_id and status=p_status;
+  update public.project_tasks set status=p_status,position=next_position,updated_by=auth.uid() where id=t.id;
+  return t.id;
+end;
+$$;
+
+create function public.delete_project_task(p_project_id uuid,p_task_id uuid) returns uuid
+language plpgsql security definer set search_path='' as $$
+begin
+  perform public.lock_native_board(p_project_id);
+  delete from public.project_tasks where id=p_task_id and project_id=p_project_id;
+  if not found then raise exception 'This task is no longer available.'; end if;
+  return p_task_id;
+end;
+$$;
+
+create function public.set_project_board(p_project_id uuid,p_mode text,p_url text default null) returns uuid
+language plpgsql security definer set search_path='' as $$
+declare p public.projects;
+begin
+  perform public.assert_active();
+  select * into p from public.projects where id=p_project_id for update;
+  perform public.assert_active();
+  if p.id is null or (p.owner_id is distinct from auth.uid() and not public.workspace_admin()) then
+    raise exception 'Only the owner or an admin can choose the project board.' using errcode='42501';
+  end if;
+  if p.work_status='completed' then raise exception 'Completed project boards are read-only.'; end if;
+  if p_mode is null or p_mode not in ('native','external') then raise exception 'Choose a native or external board.'; end if;
+  if p_mode='external' and (p_url is null or not public.valid_deliverable_url(btrim(p_url))) then
+    raise exception 'Enter a full HTTP or HTTPS board link without embedded credentials.';
+  end if;
+  update public.projects set board_mode=p_mode,external_board_url=case when p_mode='external' then btrim(p_url) else external_board_url end where id=p_project_id;
+  return p_project_id;
+end;
+$$;
+
+do $$ declare f record; begin
+  for f in select p.oid::regprocedure signature,p.proname from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid=p.pronamespace
+    where n.nspname='public' and p.proname=any(array['lock_native_board','save_project_task','move_project_task','delete_project_task','set_project_board']) loop
+    execute format('revoke all on function %s from public,anon,authenticated',f.signature);
+    if f.proname<>'lock_native_board' then execute format('grant execute on function %s to authenticated',f.signature); end if;
+  end loop;
+end $$;
+
+-- Source: supabase/migrations/20261023000700_admin_project_creation.sql
+-- Keep employee proposals private; admins can publish atomically at creation.
+create function public.limit_new_project_description() returns trigger
+language plpgsql set search_path='' as $$
+begin
+  if char_length(btrim(new.description))>300 then raise exception 'Use up to 300 characters for a new project description.'; end if;
+  return new;
+end;
+$$;
+revoke all on function public.limit_new_project_description() from public,anon,authenticated;
+create trigger limit_new_project_description before insert on public.projects
+  for each row execute function public.limit_new_project_description();
+
+create function public.admin_project_owners(p_offset integer default 0,p_limit integer default 100)
+returns table(user_id uuid,display_name text)
+language plpgsql security definer set search_path='' as $$
+begin
+  if not public.workspace_admin() then raise exception 'Administrator access is required.' using errcode='42501'; end if;
+  return query select pr.user_id,pr.display_name from public.profiles pr
+    where public.account_eligible(pr.user_id) order by pr.display_name,pr.user_id
+    offset greatest(0,coalesce(p_offset,0)) limit least(100,greatest(1,coalesce(p_limit,100)));
+end;
+$$;
+
+create function public.create_published_project(p_title text,p_description text,p_skill_ids uuid[],p_estimated_hours numeric default null,p_owner_id uuid default null)
+returns uuid language plpgsql security definer set search_path='' as $$
+declare result uuid; selected_owner uuid := coalesce(p_owner_id,auth.uid());
+begin
+  if not public.workspace_admin() then raise exception 'Administrator access is required.' using errcode='42501'; end if;
+  if not public.account_eligible(selected_owner) then raise exception 'Choose an active, verified project owner.'; end if;
+  result := public.create_project_with_skills(p_title,p_description,p_skill_ids,p_estimated_hours);
+  perform public.assign_owner(result,selected_owner);
+  if not public.workspace_admin() then raise exception 'Administrator access is required.' using errcode='42501'; end if;
+  update public.projects set approval_status='approved',visibility='organization' where id=result;
+  return result;
+end;
+$$;
+revoke all on function public.admin_project_owners(integer,integer) from public,anon,authenticated;
+grant execute on function public.admin_project_owners(integer,integer) to authenticated;
+revoke all on function public.create_published_project(text,text,uuid[],numeric,uuid) from public,anon,authenticated;
+grant execute on function public.create_published_project(text,text,uuid[],numeric,uuid) to authenticated;
+
 -- Source: supabase/seed.sql
 insert into public.skills (name) values
 ('Python'), ('SQL'), ('AI'), ('Design'), ('Web development'), ('React'),
-('TypeScript'), ('Data engineering'), ('Documentation'), ('Automation')
+('TypeScript'), ('Data engineering'), ('Documentation'), ('Automation'),
+('JavaScript'),('Java'),('Go'),('C#'),('C++'),('Bash'),('R'),('HTML'),('CSS'),
+('Node.js'),('Next.js'),('Angular'),('Vue.js'),('REST APIs'),('GraphQL'),
+('PostgreSQL'),('Db2'),('MongoDB'),('Data analysis'),('Data visualization'),('Excel'),
+('Power BI'),('Tableau'),('Machine learning'),('Generative AI'),('watsonx'),
+('UX design'),('UI design'),('User research'),('Accessibility'),('Technical writing'),
+('Testing'),('Quality assurance'),('Git'),('Docker'),('Kubernetes'),('OpenShift'),
+('CI/CD'),('Terraform'),('IBM Cloud'),('AWS'),('Azure'),('Google Cloud'),('Linux'),
+('Cybersecurity'),('Project coordination'),('Agile'),('Facilitation'),('Public speaking')
 on conflict (lower(name)) do nothing;
 
 commit;

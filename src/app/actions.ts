@@ -1,39 +1,19 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { mutate, errorState } from "@/lib/action-mutation";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireViewer } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { appOrigin, supabaseConfig } from "@/lib/config";
-import { normalizeInterest, splitSkills } from "@/lib/domain";
-import { accessSchema, deliverableSchema, idSchema, interestSchema, loginSchema, passwordSchema, profileSchema, projectSchema, resetRequestSchema, signupSchema } from "@/lib/validation";
+import { normalizeInterest } from "@/lib/domain";
+import { accessSchema, deliverableSchema, idSchema, interestSchema, loginSchema, passwordSchema, profileSchema, projectCreateSchema, projectSchema, resetRequestSchema, signupSchema } from "@/lib/validation";
 import type { ActionState } from "@/lib/action-state";
 import { authFailure } from "@/lib/auth-feedback";
 
-type Client = Awaited<ReturnType<typeof createClient>>;
-type DbError = { code?: string; message: string };
-function errorState(error: unknown): ActionState {
-  if (error instanceof z.ZodError) return { success: false, message: error.issues[0]?.message ?? "Check the form." };
-  const db = error as DbError | undefined;
-  if (db?.code === "P0001") return { success: false, message: db.message };
-  if (db?.code === "42501") return { success: false, message: "You do not have permission to do that. Your access may have changed." };
-  return { success: false, message: "We couldn't save that. Check your entries and try again." };
-}
 function values(form: FormData) { return Object.fromEntries(form.entries()); }
 function id(form: FormData, key = "project_id") { return idSchema.parse(form.get(key)); }
 function booleanField(form: FormData, key: string) { return z.enum(["true", "false"]).parse(form.get(key)) === "true"; }
-async function mutate(work: (client: Client) => PromiseLike<{ error: DbError | null }>, message: string): Promise<ActionState> {
-  await requireViewer();
-  try {
-    const client = await createClient();
-    const { error } = await work(client);
-    if (error) throw error;
-    revalidatePath("/", "layout");
-    return { success: true, message };
-  } catch (error) { return errorState(error); }
-}
-
 export async function login(_: ActionState, form: FormData): Promise<ActionState> {
   if (!supabaseConfig()) return { success: false, message: "Configure Supabase to enable sign in. See the setup instructions." };
   try {
@@ -99,9 +79,9 @@ export async function logout() {
 }
 export async function saveProfile(_: ActionState, form: FormData) {
   return mutate(async (client) => {
-    const v = profileSchema.parse(values(form));
-    return client.rpc("save_profile", { p_display_name: v.display_name, p_bio: v.bio,
-      p_existing_skills: splitSkills(v.existing_skills), p_learning_skills: splitSkills(v.learning_skills),
+    const v = profileSchema.parse({ ...values(form), existing_skills: form.getAll("existing_skills"), learning_skills: form.getAll("learning_skills") });
+    return client.rpc("save_profile_skills", { p_display_name: v.display_name, p_bio: v.bio,
+      p_existing_ids: v.existing_skills, p_learning_ids: v.learning_skills,
       p_available_hours: v.available_hours === "" ? null : Number(v.available_hours) });
   }, "Profile saved.");
 }
@@ -111,19 +91,21 @@ export async function setDirectoryVisibility(_: ActionState, form: FormData) {
   }), "People visibility saved.");
 }
 export async function searchInterest(_: ActionState, form: FormData) {
-  let query = "";
-  const result = await mutate(async (client) => {
-    query = normalizeInterest(interestSchema.parse(form.get("interest")));
-    return client.rpc("save_interest", { p_interest: query });
-  }, "Interest saved.");
-  if (!result.success) return result;
+  await requireViewer();
+  let query: string;
+  try { query = normalizeInterest(interestSchema.parse(form.get("interest"))); }
+  catch (error) { return errorState(error); }
   redirect(`/projects?q=${encodeURIComponent(query)}`);
 }
 export async function createProject(_: ActionState, form: FormData) {
+  const viewer = await requireViewer();
   let projectId = "";
   const result = await mutate(async (client) => {
-    const v = projectSchema.parse(values(form));
-    const result = await client.rpc("create_project", { p_title: v.title, p_description: v.description, p_skills: splitSkills(v.skills), p_estimated_hours: v.estimated_hours === "" ? null : Number(v.estimated_hours) });
+    const v = projectCreateSchema.parse({ ...values(form), skills: form.getAll("skills") });
+    const input = { p_title: v.title, p_description: v.description, p_skill_ids: v.skills, p_estimated_hours: v.estimated_hours === "" ? null : Number(v.estimated_hours) };
+    const result = viewer.role === "admin"
+      ? await client.rpc("create_published_project", { ...input, p_owner_id: idSchema.parse(form.get("owner_id") || viewer.id) })
+      : await client.rpc("create_project_with_skills", input);
     projectId = result.data ?? "";
     return result;
   }, "Proposal created.");
@@ -134,8 +116,8 @@ export async function editProject(_: ActionState, form: FormData) {
   let projectId = "";
   const result = await mutate(async (client) => {
     projectId = id(form);
-    const v = projectSchema.parse(values(form));
-    return client.rpc("edit_project", { p_project_id: projectId, p_title: v.title, p_description: v.description, p_skills: splitSkills(v.skills), p_estimated_hours: v.estimated_hours === "" ? null : Number(v.estimated_hours) });
+    const v = projectSchema.parse({ ...values(form), skills: form.getAll("skills") });
+    return client.rpc("edit_project_with_skills", { p_project_id: projectId, p_title: v.title, p_description: v.description, p_skill_ids: v.skills, p_estimated_hours: v.estimated_hours === "" ? null : Number(v.estimated_hours) });
   }, "Project saved.");
   if (!result.success) return result;
   redirect(`/projects/${projectId}`);

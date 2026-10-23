@@ -19,7 +19,7 @@ test("opening a verification link signs in automatically and keeps the session a
     const page = await context.newPage();
     await page.goto(path);
     await expect(page).toHaveURL(/\/\?notice=email-verified$/);
-    await expect(page.getByRole("status")).toHaveText("Email verified successfully.");
+    await expect(page.getByRole("status")).toHaveText("Success! Email verified.");
     await expect(page.getByRole("heading",{name:"What do you want to work on?",exact:true})).toBeVisible();
     const after = await f.ok<{email_confirmed_at:string|null}>(`/auth/v1/admin/users/${actor.id}`,"GET",undefined,f.service);
     expect(after.email_confirmed_at).toBeTruthy();
@@ -31,7 +31,7 @@ test("opening a verification link signs in automatically and keeps the session a
     // receipt only after authenticating the same active, confirmed account.
     await page.goto(path);
     await expect(page).toHaveURL(/\/\?notice=email-verified$/);
-    await expect(page.getByRole("status")).toHaveText("Email verified successfully.");
+    await expect(page.getByRole("status")).toHaveText("Success! Email verified.");
     await page.goto("/auth/confirm?token_hash=unrelated-invalid-token&type=email");
     await expect(page.getByRole("alert")).toContainText("already been used");
   } finally {

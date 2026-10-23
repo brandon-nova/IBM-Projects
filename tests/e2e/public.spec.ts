@@ -1,26 +1,26 @@
 import { test, expect } from "@playwright/test";
 
-test("public homepage is focused, responsive, and routes to protected challenges", async ({ page }) => {
+test("public homepage is focused, responsive, and routes to protected projects", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Find work worth doing.");
   await expect(page.getByRole("link", { name: "IBM home" })).toBeVisible();
   await expect(page.getByText("Fictional examples", { exact: true })).toBeVisible();
-  await expect(page.getByRole("searchbox", { name: "Search challenges by skill or interest" })).toBeVisible();
+  await expect(page.getByRole("searchbox", { name: "Search projects by skill or interest" })).toBeVisible();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "Skip to content" })).toBeFocused();
   for (const width of [1440, 768, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await expect(page.getByRole("link", { name: "Explore challenges", exact: true })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Post a challenge", exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Explore projects", exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Post a project", exact: true })).toBeVisible();
   }
   await page.screenshot({ path: "test-results/home-mobile.png", fullPage: true });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({ path: "test-results/home-desktop.png", fullPage: true });
-  await page.getByRole("link", { name: "Explore challenges", exact: true }).click();
+  await page.getByRole("link", { name: "Explore projects", exact: true }).click();
   await expect(page).toHaveURL(/\/login\?notice=access/);
   await page.goto("/");
-  await page.getByRole("link", { name: "Post a challenge", exact: true }).click();
+  await page.getByRole("link", { name: "Post a project", exact: true }).click();
   await expect(page).toHaveURL(/\/login\?notice=access/);
 });
 
